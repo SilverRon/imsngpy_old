@@ -211,6 +211,9 @@ if obs == 'RASA36':
 # ccdinfo = tableutil.getccdinfo(obs, ccddat)
 ccdinfo = getccdinfo(obs, ccddat)
 
+
+
+#	Unifying Header
 for file in ic0.summary['file']:
 	inim = f'{path_data}/{file}'
 	with fits.open(inim) as hdul:
@@ -249,19 +252,8 @@ for file in ic0.summary['file']:
 
 
 
-
-
-
-
-
-
-
-
-
-
-# objfilterlist, objexptimelist, flatfilterlist, darkexptimelist, obstime = calib.correcthdr_routine(path_data, hdrtbl)
 ic1 = ImageFileCollection(path_data, keywords='*')
-ic1.summary.write('{}/hdr.cor.dat'.format(path_data), format='ascii.tab', overwrite=True)
+ic1.summary.write(f'{path_data}/hdr.cor.dat', format='ascii.tab', overwrite=True)
 
 nobj = len(ic1.filter(imagetyp='OBJECT').summary)
 #------------------------------------------------------------
@@ -272,7 +264,7 @@ keytbl = ascii.read(f'{path_keys}/keys.dat')
 OAuth_Token = keytbl['key'][keytbl['name']=='slack'].item()
 
 channel = '#pipeline'
-text = f'[Pipeline/{obs}] Start Processing {os.path.basename(path)} Data ({nobj} objects) with {ncores} cores'
+text = f'[Pipeline/{obs}] Start Processing {os.path.basename(path_data)} Data ({nobj} objects) with {ncores} cores'
 
 param_slack = dict(
 	token = OAuth_Token,
@@ -280,7 +272,10 @@ param_slack = dict(
 	text = text,
 )
 
-tool_tbd.slack_bot(**param_slack)
+# misc.slack_bot(**param_slack)
+slack_bot(**param_slack)
+
+
 #============================================================
 #	Making master frames (BIAS, DARK, FLAT)
 #============================================================
@@ -288,6 +283,16 @@ st = time.time()
 #------------------------------------------------------------
 #	BIAS
 #------------------------------------------------------------
+biastbl = ic1.filter(imagetyp='Bias').summary
+biaslist = list(biastbl['file'])
+# mbias = preprocess.master_bias(imlist)
+mbias = master_bias(imlist)
+
+darktbl = ic1.filter(imagetyp='dark').summary
+
+
+
+
 try:
 	biasnumb = len(ic1.filter(imagetyp='Bias').summary)
 except:

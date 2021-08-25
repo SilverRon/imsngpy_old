@@ -2,47 +2,53 @@ import os
 import ccdproc
 from astropy.nddata import CCDData
 import matplotlib.pyplot as plt
-from ccdproc import ImageFileCollection
+from astropy.io import fits
 
-def master_zero(
-	images,
-	fig=False
-	):
+def master_bias(imlist):
 	"""
 	"""
-	comment     = '-'*60+'\n' \
-				+ 'MAKING MASTER ZERO\n' \
-				+ '-'*60+'\n'
+	comment = f"""{'-'*60}
+	#\tBIAS MASTER FRAME (<--{len(imlist)} frames)
+	{'-'*60}"""
 	print(comment)
-	path_data = images.location
-	#	HEADER FOR MASTER FRAME
-	ccddata_lst   = []
-	# for hdu, fname in images.hdus(imagetyp='Bias', return_fname=True):
-	for hdu, fname in images.hdus(imagetyp='BIAS', return_fname=True):
-		
-		meta = hdu.header
-		ccddata_lst.append(ccdproc.CCDData(data=hdu.data, meta=meta, unit="adu"))
 
-	#	HEADER FOR MASTER FRAME
-	n = 0
-	for hdu, fname in images.hdus(imagetyp='Bias', return_fname=True):	
-		n += 1
-		newmeta = meta
-		newmeta['FILENAME'] = 'zero.fits'
-		newmeta['COMB{}'.format(n)] = fname
-	print('{} ZERO IMAGES WILL BE COMBINED.'.format(len(ccddata_lst)))
-	zeros = ccdproc.Combiner(ccddata_lst)
-	mzero = zeros.median_combine()
-	mzero.header  = newmeta
+	# st = time.time()
+	combiner = ccdproc.Combiner([CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim)) for inim in imlist])
+	mbias = combiner.median_combine()
+	# print(time.time() - st)
+	mbias.header['NCOMBINE'] = len(imlist)
+	for n, inim in enumerate(imlist):
+		if n==0:
+			mbias.header = fits.getheader(inim)
+		else:
+			pass
+		mbias.header['COMB{}'.format(n)] = inim
+	dateobs = mbias.header['DATE-OBS'].split('T')[0].replace('-', '')
+	filename = f'{os.path.dirname(inim)}/{dateobs}-zero.fits'
+	mbias.header['FILENAME'] = filename
+	return mbias
 
-	#	SAVE MASTER FRAME
-	if '{}/zero.fits'.format(path_data) in glob.glob(path_data+'/*'):
-		os.system('rm {}/zero.fits'.format(path_data))
-	mzero.write('{}/zero.fits'.format(path_data))
-	if fig != False:
-		imstats = lambda dat: (dat.min(), dat.max(), dat.mean(), dat.std())
-		zero_min, zero_max, zero_mean, zero_std = imstats(np.asarray(mzero))
-		plt.figure(figsize=(15, 15))
-		plt.imshow(mzero, vmax=zero_mean + 4*zero_std, vmin=zero_mean - 4*zero_std)
-		plt.savefig(path_data+'/zero.png')
-	return mzero
+def master_dark(imlist, mbias, exptime):
+	"""
+	"""
+	comment = f"""{'-'*60}
+	#\tDARK MASTER FRAME (<--{len(imlist)} frames)
+	{'-'*60}"""
+	print(comment)
+
+	# st = time.time()
+	combiner = ccdproc.Combiner([CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim)) for inim in imlist])
+	mdark = combiner.median_combine()
+	# print(time.time() - st)
+	mdark.header['NCOMBINE'] = len(imlist)
+	mdark.header['SUBBIAS'] = mbias.header['FILENAME']
+	for n, inim in enumerate(imlist):
+		if n==0:
+			mdark.header = fits.getheader(inim)
+		else:
+			pass
+		mdark.header['COMB{}'.format(n)] = inim
+	dateobs = mdark.header['DATE-OBS'].split('T')[0].replace('-', '')
+	filename = f'{os.path.dirname(inim)}/{dateobs}-dark.fits'
+	mdark.header['FILENAME'] = filename
+	return mdark
