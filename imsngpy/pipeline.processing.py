@@ -161,11 +161,37 @@ ic1 = ImageFileCollection(path_data, keywords='*')
 
 ccdinfo = getccdinfo(obs, ccddat)
 
+mframe = dict()
 
-mbias = master_bias(ic1.filter(imagetyp='bias').files)
-mdark = master_dark(ic1.filter(imagetyp='dark', exptime=200).files, mbias=mbias)
+#	BIAS
+biaslist = ic1.filter(imagetyp='bias').files
+if len(biaslist) > 0:
+	mframe['bias'] = master_bias(biaslist)
+else:
+	print('borrow')
 
+#	DARK
+mframe['dark'] = ''
+darklist = ic1.filter(imagetyp='dark').files
+if len(darklist) > 0:
+	for exptime in set(ic1.filter(imagetyp='dark').summary['exptime']):
+		mframe['dark'] = {
+			f'{int(exptime)}':master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
+		}
+else:
+	print('borrow')
 
+#	FLAT
+mframe['flat'] = ''
+flatlist = ic1.filter(imagetyp='flat').files
+if len(flatlist) > 0:
+	for filte in set(ic1.filter(imagetyp='flat').summary['filter']):
+		print(filte)
+		mframe['flat'] = {
+			f'{int(exptime)}':master_flat(ic1.filter(imagetyp='flat', exptime=exptime).files, mbias=mframe['bias'])
+		}
+else:
+	print('borrow')
 
 
 
