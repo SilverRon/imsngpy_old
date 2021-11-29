@@ -108,15 +108,17 @@ logtbl = ascii.read(f'{path_log}/{obs.lower()}.log')
 hdrtbl = ascii.read(f'{path_table}/changehdr.dat')
 alltbl = ascii.read(f'{path_table}/alltarget.dat')
 
+path_data = f'{path_obs}/{os.path.basename(path_raw)}'
+
 if os.path.exists(path_data):
 	rmcom = f'rm -rf {path_data}'
 	print(rmcom)
 	os.system(rmcom)
 
 cpcom = f'cp -r {path_raw} {path_data}'
+print(cpcom)
 os.system(cpcom)
 
-path_data = f'{path_obs}/{os.path.basename(path_raw)}'
 
 # imlist = sorted(glob.glob(f'{path_data}/*.f*'))
 
@@ -125,38 +127,34 @@ ic0 = ImageFileCollection(path_data, keywords='*')
 
 
 for i, inim in enumerate(ic0.summary['file']):
-	#	Table
+	#	Correction with table
 	for key, val, nval in zip(hdrtbl['key'], hdrtbl['val'], hdrtbl['newval']):
 		if ic0.summary[key.lower()][i] == val:
 			print(f'{inim} - {key} : {val} --> {nval}')
 			fits.setval(f'{path_data}/{inim}', key, value=nval)
-	#	DATE-OBS
+	#	DATE-OBS, JD, MJD
 	if 'T' not in ic0.summary['date-obs'][i]:
 		dateobs = f"{ic0.summary['date-obs']}'T'{ic0.summary['time-obs']}"
 		fits.setval(f'{path_data}/{inim}', 'date-obs', value=dateobs)
 		del dateobs
-	
-	t = Time(ic0.summary['DATE-OBS'], format='isot')
-	ic0.summary['JD'] = t.jd
-	ic0.summary['MJD'] = t.mjd
-
-
-
-#	CHECK DATE-OBS
-if 'T' not in hdr['DATE-OBS']: hdr['DATE-OBS'] = hdr['DATE-OBS']+'T'+hdr['TIME-OBS']
-t = Time(hdr['DATE-OBS'], format='isot')
-hdr['JD'] = t.jd
-hdr['MJD'] = t.mjd
-#	CHECK OBJECT HDR
-if 'ngc' in hdr['OBJECT']:
-	while len(hdr['OBJECT'])<7:
-		head = hdr['OBJECT'][0:3]
-		tail = hdr['OBJECT'][3: ]
-		tail = '0'+tail
-		hdr['OBJECT'] = head+tail
-hdr['OBJECT'] = hdr['OBJECT'].upper()
-
-
+	else:
+		pass
+	t = Time(ic0.summary['date-obs'][i], format='isot')
+	fits.setval(f'{path_data}/{inim}', 'JD', value=t.jd)
+	fits.setval(f'{path_data}/{inim}', 'MJD', value=t.mjd)
+	del t
+	#	OBJECT name
+	if 'ngc' in ic0.summary['object'][i]:
+		objectname = ic0.summary['object'][i]
+		while len(objectname)<7:
+			head = objectname[0:3]
+			tail = objectname[3:]
+			tail = f'0{tail}'
+			objectname = f'{head}{tail}'
+		fits.setval(f'{path_data}/{inim}', 'OBJECT', value=objectname.upper())
+		del objectname
+		del head
+		del tail
 
 #============================================================
 #	MAIN BODY
@@ -164,13 +162,7 @@ hdr['OBJECT'] = hdr['OBJECT'].upper()
 tdict = dict()
 starttime = time.time()
 #	Remove old folder and re-copy folder
-rmcom = f'rm -rf {path_data}'
-print(rmcom)
-os.system(rmcom)
-#	Copy raw data to factory
-cpcom = f'cp -r {path_raw} {path_data}'
-print(cpcom)
-os.system(cpcom)
+
 #------------------------------------------------------------
 #	Process summary status
 #------------------------------------------------------------
