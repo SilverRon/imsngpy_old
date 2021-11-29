@@ -10,6 +10,7 @@ import glob
 import sys
 sys.path.append('/home/paek/imsngpy')
 from tableutil import getccdinfo
+from preprocess import *
 import warnings
 warnings.filterwarnings(action='ignore')
 import time
@@ -42,6 +43,7 @@ from astropy.time import Time
 #============================================================
 #	Input
 #------------------------------------------------------------
+"""
 #	[0] Folder to process
 try:
 	path_raw = sys.argv[1]
@@ -70,7 +72,7 @@ try:
 	ncores = int(sys.argv[3])
 except:
 	ncores = 8
-
+"""
 #	Test setting
 path_raw = '/data6/obsdata/LOAO/1994_1026'
 obs = 'LOAO'
@@ -119,13 +121,12 @@ cpcom = f'cp -r {path_raw} {path_data}'
 print(cpcom)
 os.system(cpcom)
 
-
-# imlist = sorted(glob.glob(f'{path_data}/*.f*'))
-
 ic0 = ImageFileCollection(path_data, keywords='*')
 # ic0.summary.write('{}/hdr.raw.dat'.format(path_data), format='ascii.tab', overwrite=True)
 
-
+#------------------------------------------------------------
+#	Header correction
+#------------------------------------------------------------
 for i, inim in enumerate(ic0.summary['file']):
 	#	Correction with table
 	for key, val, nval in zip(hdrtbl['key'], hdrtbl['val'], hdrtbl['newval']):
@@ -155,6 +156,22 @@ for i, inim in enumerate(ic0.summary['file']):
 		del objectname
 		del head
 		del tail
+
+ic1 = ImageFileCollection(path_data, keywords='*')
+
+ccdinfo = getccdinfo(obs, ccddat)
+
+
+mbias = master_bias(ic1.filter(imagetyp='bias').files)
+mdark = master_dark(ic1.filter(imagetyp='dark', exptime=200).files, mbias=mbias)
+
+
+
+
+
+
+
+
 
 #============================================================
 #	MAIN BODY
