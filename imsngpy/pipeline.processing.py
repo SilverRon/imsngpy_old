@@ -5,14 +5,15 @@
 #============================================================
 #	Library
 #------------------------------------------------------------
+import os
+import glob
+import sys
+sys.path.append('/home/paek/imsngpy')
 from tableutil import getccdinfo
 import warnings
 warnings.filterwarnings(action='ignore')
 import time
 start_localtime = time.strftime('%Y-%m-%d %H:%M:%S (%Z)', time.localtime())
-import os
-import sys
-import glob
 from astropy.io import ascii
 from astropy.io import fits
 import numpy as np
@@ -41,12 +42,12 @@ from astropy.time import Time
 #============================================================
 #	Input
 #------------------------------------------------------------
-#	Observatory_ccd
+#	[0] Folder to process
 try:
 	path_raw = sys.argv[1]
 except:
 	path_raw = input('''# Data folder to process : ''')
-
+#	[1]	Observatory_ccd
 try:
 	obs = (sys.argv[2]).upper()
 except:
@@ -64,7 +65,7 @@ LSGT
 ---------------------
 :''').upper()
 print('# Observatory : {}'.format(obs.upper()))
-#	The number of cores
+#	[3]	The number of cores
 try:
 	ncores = int(sys.argv[3])
 except:
@@ -107,29 +108,53 @@ logtbl = ascii.read(f'{path_log}/{obs.lower()}.log')
 hdrtbl = ascii.read(f'{path_table}/changehdr.dat')
 alltbl = ascii.read(f'{path_table}/alltarget.dat')
 
+if os.path.exists(path_data):
+	rmcom = f'rm -rf {path_data}'
+	print(rmcom)
+	os.system(rmcom)
+
+cpcom = f'cp -r {path_raw} {path_data}'
+os.system(cpcom)
 
 path_data = f'{path_obs}/{os.path.basename(path_raw)}'
 
+# imlist = sorted(glob.glob(f'{path_data}/*.f*'))
+
+ic0 = ImageFileCollection(path_data, keywords='*')
+# ic0.summary.write('{}/hdr.raw.dat'.format(path_data), format='ascii.tab', overwrite=True)
+
+
+for i, inim in enumerate(ic0.summary['file']):
+	#	Table
+	for key, val, nval in zip(hdrtbl['key'], hdrtbl['val'], hdrtbl['newval']):
+		if ic0.summary[key.lower()][i] == val:
+			print(f'{inim} - {key} : {val} --> {nval}')
+			fits.setval(f'{path_data}/{inim}', key, value=nval)
+	#	DATE-OBS
+	if 'T' not in ic0.summary['date-obs'][i]:
+		dateobs = f"{ic0.summary['date-obs']}'T'{ic0.summary['time-obs']}"
+		fits.setval(f'{path_data}/{inim}', 'date-obs', value=dateobs)
+		del dateobs
+	
+	t = Time(ic0.summary['DATE-OBS'], format='isot')
+	ic0.summary['JD'] = t.jd
+	ic0.summary['MJD'] = t.mjd
 
 
 
-
-'''
-for inim in imlist:
-	for key, val in zip(keys, vals):
-		fits.setval(inim, key, value=val)
-'''
-
-
-
-
-
-
-
-
-
-
-
+#	CHECK DATE-OBS
+if 'T' not in hdr['DATE-OBS']: hdr['DATE-OBS'] = hdr['DATE-OBS']+'T'+hdr['TIME-OBS']
+t = Time(hdr['DATE-OBS'], format='isot')
+hdr['JD'] = t.jd
+hdr['MJD'] = t.mjd
+#	CHECK OBJECT HDR
+if 'ngc' in hdr['OBJECT']:
+	while len(hdr['OBJECT'])<7:
+		head = hdr['OBJECT'][0:3]
+		tail = hdr['OBJECT'][3: ]
+		tail = '0'+tail
+		hdr['OBJECT'] = head+tail
+hdr['OBJECT'] = hdr['OBJECT'].upper()
 
 
 

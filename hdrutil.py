@@ -1,7 +1,5 @@
 from astropy.io import fits
 
-
-
 def correcthdr_routine(path_data, hdrtbl, obs):
 	'''
 	1.	NGC337		-> NGC0337
