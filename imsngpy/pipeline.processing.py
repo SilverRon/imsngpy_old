@@ -77,7 +77,8 @@ except:
 	ncore = 8
 """
 #	Test setting
-path_raw = '/data6/obsdata/LOAO/1994_1026'
+# path_raw = '/data6/obsdata/LOAO/1994_1026'
+path_raw = '/data6/obsdata/LOAO/1994_1003'
 obs = 'LOAO'
 ncore = 8
 
@@ -217,56 +218,64 @@ del flatframe
 print(f"""{'-'*60}\n#\tOBJECT CORRECTION\n{'-'*60}""")
 # for filte in set(ic1.filter(imagetyp='object').summary['filter']):
 	# print(f"""\n#\t{filte}-band\n""")
-
+'''
 for inim, filte, objexptime in zip(
 	ic1.filter(imagetyp='object').files,
 	ic1.filter(imagetyp='object').summary['filter'],
 	ic1.filter(imagetyp='object').summary['exptime'],	
 	):
+'''
+# print(f"[{i+1}/{len(ic1.filter(imagetyp='object', filter=filte).files)}] {os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
 
-	# print(f"[{i+1}/{len(ic1.filter(imagetyp='object', filter=filte).files)}] {os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
+def obj_process4mp(inim, filte, exptime, ccdinfo, mframe,):
+	'''
+	Routine for multiprocess
+	'''
+	#	Find the closest exposuretime betw dark and object
+	indx_closet = np.where(
+		np.abs(objexptime-darkexptime) == np.min(np.abs(objexptime-darkexptime))
+	)
+	bestdarkexptime = darkexptime[indx_closet].item()
+	print(f"{os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
+	#	Process
+	nccd = obj_process(
+		inim=inim,
+		# gain=ccdinfo['gain'],
+		gain=None,
+		readnoise=ccdinfo['rdnoise'],
+		mbias=mframe['bias'],
+		mdark=mframe['dark'][str(int(bestdarkexptime))],
+		mflat=mframe['flat'][filte],
+	)
+	# nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
 
-	delt = []
-	ncores = [1, 4, 8]
-	for ncore in ncores:
-		st = time.time()
-		if __name__ == '__main__':
-			with multiprocessing.Pool(processes=ncore) as pool:
-				results = pool.starmap(
-					obj_process4mp,
-					zip(
-						ic1.filter(imagetyp='object').files,
-						ic1.filter(imagetyp='object').summary['filter'],
-						ic1.filter(imagetyp='object').summary['exptime'],
-						repeat(ccdinfo),
-						repeat(mframe),
-					)
-					)
-		delt.append(time.time()-st)					
-	plt.plot(ncores, delt, marker='s', ls='--', c='k')
+delt0 = []
+ncores = [1, 2, 3, 4, 5, 6, 7, 8]
+for ncore in ncores:
+	print(ncore)
+	st = time.time()
+	if __name__ == '__main__':
+		with multiprocessing.Pool(processes=ncore) as pool:
+			results = pool.starmap(
+				obj_process4mp,
+				zip(
+					ic1.filter(imagetyp='object').files[:100],
+					ic1.filter(imagetyp='object').summary['filter'][:100],
+					ic1.filter(imagetyp='object').summary['exptime'][:100],
+					repeat(ccdinfo),
+					repeat(mframe),
+				)
+				)
+	delt0.append(time.time()-st)					
+plt.close()
+plt.plot(ncores, delt, marker='s', ls='--', c='k', mfc='none', label='100 images (w/ save)')
+plt.plot(ncores, delt0, marker='s', ls='--', c='dodgerblue', mfc='none', label='100 images (w/ save)')
+plt.plot(ncores, np.array(delt)-np.array(delt0), marker='o', ls='--', c='tomato', mfc='none', label='difference')
 
-	def obj_process4mp(inim, filte, exptime, ccdinfo, mframe,):
-		'''
-		Routine for multiprocess
-		'''
-		#	Find the closest exposuretime betw dark and object
-		indx_closet = np.where(
-			np.abs(objexptime-darkexptime) == np.min(np.abs(objexptime-darkexptime))
-		)
-		bestdarkexptime = darkexptime[indx_closet].item()
-		print(f"{os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
-		#	Process
-		nccd = obj_process(
-			inim=inim,
-			# gain=ccdinfo['gain'],
-			gain=None,
-			readnoise=ccdinfo['rdnoise'],
-			mbias=mframe['bias'],
-			mdark=mframe['dark'][str(int(bestdarkexptime))],
-			mflat=mframe['flat'][filte],
-		)
-		nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
-
+plt.xlabel('The number of core', fontsize=20)
+plt.ylabel('Time [s]', fontsize=20)
+plt.legend(fontsize=14)
+plt.savefig('preprocess.test.with.save.png', dpi=500)
 
 # del nccd
 
