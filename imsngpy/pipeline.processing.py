@@ -22,6 +22,9 @@ from astropy.table import Table
 from astropy import units as u
 from ccdproc import ImageFileCollection
 from astropy.time import Time
+#	Multiprocess tools
+from itertools import repeat
+import multiprocessing
 # from __future__ import print_function, division, absolute_import
 # from timeit import default_timer as timer
 # from numba import jit
@@ -69,14 +72,14 @@ LSGT
 print('# Observatory : {}'.format(obs.upper()))
 #	[3]	The number of cores
 try:
-	ncores = int(sys.argv[3])
+	ncore = int(sys.argv[3])
 except:
-	ncores = 8
+	ncore = 8
 """
 #	Test setting
 path_raw = '/data6/obsdata/LOAO/1994_1026'
 obs = 'LOAO'
-ncores = 8
+ncore = 8
 
 #------------------------------------------------------------
 #	PATH
@@ -127,6 +130,9 @@ ic0 = ImageFileCollection(path_data, keywords='*')
 #------------------------------------------------------------
 #	Header correction
 #------------------------------------------------------------
+comment = f"""{'-'*60}\n#\tHEADER CORRECTION\n{'-'*60}"""
+print(comment)
+
 for i, inim in enumerate(ic0.summary['file']):
 	#	Correction with table
 	for key, val, nval in zip(hdrtbl['key'], hdrtbl['val'], hdrtbl['newval']):
@@ -156,48 +162,115 @@ for i, inim in enumerate(ic0.summary['file']):
 		del objectname
 		del head
 		del tail
-
+	print()
 ic1 = ImageFileCollection(path_data, keywords='*')
 
 ccdinfo = getccdinfo(obs, ccddat)
 
-mframe = dict()
 
+
+#============================================================
+#	Pre-processing
+#------------------------------------------------------------
+mframe = dict()
+#------------------------------------------------------------
 #	BIAS
+#------------------------------------------------------------
 biaslist = ic1.filter(imagetyp='bias').files
 if len(biaslist) > 0:
 	mframe['bias'] = master_bias(biaslist)
 else:
 	print('borrow')
-
+#------------------------------------------------------------
 #	DARK
-mframe['dark'] = ''
+#------------------------------------------------------------
+darkframe = dict()
 darklist = ic1.filter(imagetyp='dark').files
 if len(darklist) > 0:
-	for exptime in set(ic1.filter(imagetyp='dark').summary['exptime']):
-		mframe['dark'] = {
-			f'{int(exptime)}':master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
-		}
+	darkexptime = np.array(list(set(ic1.filter(imagetyp='dark').summary['exptime'])))
+	for exptime in darkexptime:
+		darkframe[f'{int(exptime)}'] = master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
 else:
 	print('borrow')
 
+mframe['dark'] = darkframe
+del darkframe
+#------------------------------------------------------------
 #	FLAT
-mframe['flat'] = ''
+#------------------------------------------------------------
+flatframe = dict()
 flatlist = ic1.filter(imagetyp='flat').files
 if len(flatlist) > 0:
-	for filte in set(ic1.filter(imagetyp='flat').summary['filter']):
-		print(filte)
-		mframe['flat'] = {
-			f'{int(exptime)}':master_flat(ic1.filter(imagetyp='flat', exptime=exptime).files, mbias=mframe['bias'])
-		}
+	indx_mindark = np.where(darkexptime == np.min(darkexptime))
+	mdark = mframe['dark'][str(int(darkexptime[indx_mindark].item()))]
+	for filte in set(ic1.filter(imagetyp='flat',).summary['filter']):
+		# print(filte)
+		flatframe[filte] = master_flat(ic1.filter(imagetyp='flat', filter=filte).files, mbias=mframe['bias'], mdark=mdark, filte=filte)
+	del mdark
 else:
 	print('borrow')
+mframe['flat'] = flatframe
+del flatframe
+#------------------------------------------------------------
+#	OBJECT Correction
+#------------------------------------------------------------
+print(f"""{'-'*60}\n#\tOBJECT CORRECTION\n{'-'*60}""")
+# for filte in set(ic1.filter(imagetyp='object').summary['filter']):
+	# print(f"""\n#\t{filte}-band\n""")
+
+for inim, filte, objexptime in zip(
+	ic1.filter(imagetyp='object').files,
+	ic1.filter(imagetyp='object').summary['filter'],
+	ic1.filter(imagetyp='object').summary['exptime'],	
+	):
+
+	# print(f"[{i+1}/{len(ic1.filter(imagetyp='object', filter=filte).files)}] {os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
+
+	delt = []
+	ncores = [1, 4, 8]
+	for ncore in ncores:
+		st = time.time()
+		if __name__ == '__main__':
+			with multiprocessing.Pool(processes=ncore) as pool:
+				results = pool.starmap(
+					obj_process4mp,
+					zip(
+						ic1.filter(imagetyp='object').files,
+						ic1.filter(imagetyp='object').summary['filter'],
+						ic1.filter(imagetyp='object').summary['exptime'],
+						repeat(ccdinfo),
+						repeat(mframe),
+					)
+					)
+		delt.append(time.time()-st)					
+	plt.plot(ncores, delt, marker='s', ls='--', c='k')
+
+	def obj_process4mp(inim, filte, exptime, ccdinfo, mframe,):
+		'''
+		Routine for multiprocess
+		'''
+		#	Find the closest exposuretime betw dark and object
+		indx_closet = np.where(
+			np.abs(objexptime-darkexptime) == np.min(np.abs(objexptime-darkexptime))
+		)
+		bestdarkexptime = darkexptime[indx_closet].item()
+		print(f"{os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
+		#	Process
+		nccd = obj_process(
+			inim=inim,
+			# gain=ccdinfo['gain'],
+			gain=None,
+			readnoise=ccdinfo['rdnoise'],
+			mbias=mframe['bias'],
+			mdark=mframe['dark'][str(int(bestdarkexptime))],
+			mflat=mframe['flat'][filte],
+		)
+		nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
 
 
+# del nccd
 
-
-
-
+"""""
 
 #============================================================
 #	MAIN BODY
@@ -324,7 +397,7 @@ keytbl = ascii.read(f'{path_keys}/keys.dat')
 OAuth_Token = keytbl['key'][keytbl['name']=='slack'].item()
 
 channel = '#pipeline'
-text = f'[Pipeline/{obs}] Start Processing {os.path.basename(path_data)} Data ({nobj} objects) with {ncores} cores'
+text = f'[Pipeline/{obs}] Start Processing {os.path.basename(path_data)} Data ({nobj} objects) with {ncore} cores'
 
 param_slack = dict(
 	token = OAuth_Token,
@@ -611,11 +684,11 @@ for inim in fzimlist:
 		astotlist.append(inim)
 #	Astrometry (IMSNG field)
 if __name__ == '__main__':
-	with multiprocessing.Pool(processes=ncores) as pool:
+	with multiprocessing.Pool(processes=ncore) as pool:
 		results = pool.starmap(calib.astrometry, zip(astimlist, repeat(ccdinfo['pixscale']), astralist, astdelist, repeat(ccdinfo['fov']/60.), repeat(15)))
 #	Astrometry (non IMSNG field)
 if __name__ == '__main__':
-	with multiprocessing.Pool(processes=ncores) as pool:
+	with multiprocessing.Pool(processes=ncore) as pool:
 		results = pool.starmap(calib.astrometry, zip(astotlist, repeat(ccdinfo['pixscale']), repeat(None), repeat(None), repeat(None), repeat(60)))
 #	Astrometry (failed IMSNG field)
 astfailist = []
@@ -623,7 +696,7 @@ for inim in astimlist:
 	if (os.path.exists('{}/a{}'.format(path_data, os.path.basename(inim))) == False):
 		astfailist.append(inim)
 if __name__ == '__main__':
-	with multiprocessing.Pool(processes=ncores) as pool:
+	with multiprocessing.Pool(processes=ncore) as pool:
 		results = pool.starmap(calib.astrometry, zip(astfailist, repeat(ccdinfo['pixscale']), repeat(None), repeat(None), repeat(None), repeat(60)))
 for inim in astfailist:
 	if (os.path.exists('{}/a{}'.format(path_data, os.path.basename(inim))) == False):
@@ -654,11 +727,11 @@ for i, inim in enumerate(afzimlist):
 if ('KCT' not in obs) & ('RASA36' not in obs):
 	#	Seeing measurement
 	if __name__ == '__main__':
-		with multiprocessing.Pool(processes=ncores) as pool:
+		with multiprocessing.Pool(processes=ncore) as pool:
 			results = pool.starmap(tool_tbd.SE_seeing, zip(afzimlist, repeat(obs), repeat(ccddat), repeat(path_config), repeat(3*u.arcsecond), repeat(0.95), repeat(True)))
 	#	Remove cosmic-ray
 	if __name__ == '__main__':
-		with multiprocessing.Pool(processes=ncores) as pool:
+		with multiprocessing.Pool(processes=ncore) as pool:
 			results = pool.starmap(calib.cr_removal, zip(afzimlist, outimlist, repeat(gain), repeat(rdnoise)))
 else:
 	print('Skip Seeing measurement & CR remove processes for {}'.format(obs))
@@ -770,7 +843,7 @@ if obs == 'DOAO':
 	path_phot = path_phot_sg
 else:
 	path_phot = path_phot_mp
-com = 'python {} {} {}'.format(path_phot, path_data, ncores)
+com = 'python {} {} {}'.format(path_phot, path_data, ncore)
 print(com)
 os.system(com)
 # tdict['photometry'] = time.time() - st - tdict[list(tdict.keys())[-1]]
@@ -913,7 +986,7 @@ for line in lines:
 h.close()
 #	Execute
 path_phot = path_phot_mp
-com = 'python {} {} {}'.format(path_phot, path_data, ncores)
+com = 'python {} {} {}'.format(path_phot, path_data, ncore)
 print(com)
 os.system(com)
 # tdict['photometry_com'] = time.time() - st - tdict[list(tdict.keys())[-1]]
@@ -957,7 +1030,7 @@ for filte in filterlist:
 # #	Image subtraction
 # if len(images_to_subtract) > 0:
 # 	if __name__ == '__main__':
-# 		with multiprocessing.Pool(processes=ncores) as pool:
+# 		with multiprocessing.Pool(processes=ncore) as pool:
 # 			results = pool.starmap(tool_tbd.subtraction_routine, zip(images_to_subtract, images_to_ref))
 # else:
 # 	pass
@@ -1052,7 +1125,7 @@ if len(hdimlist) != 0:
 	out_tstbl = f'{path_data}/transient_search.txt'
 	tstbl.write(out_tstbl, format='ascii.tab', overwrite=True)
 
-	com = f'python {path_find} {out_tstbl} {ncores}'
+	com = f'python {path_find} {out_tstbl} {ncore}'
 	print(com)
 	subprocess.call(com, shell=True)		
 	'''
@@ -1067,7 +1140,7 @@ if len(hdimlist) != 0:
 
 		try:
 			#	Single
-			com = f'python {path_find} {hdim} {hdcat} {hcim} {scicat} {fovval} {ncores}'
+			com = f'python {path_find} {hdim} {hdcat} {hcim} {scicat} {fovval} {ncore}'
 			print(com)
 			# os.system(com)
 			subprocess.call(com, shell=True)
@@ -1123,7 +1196,7 @@ tool_tbd.sendmail(**param_email)
 total_time = round(timetbl['time'][timetbl['process']=='total'].item()/60., 1)
 
 channel = '#pipeline'
-text = f'[Pipeline/{obs}] End Processing {os.path.basename(path)} Data ({nobj} objects) with {ncores} cores taking {total_time} mins'
+text = f'[Pipeline/{obs}] End Processing {os.path.basename(path)} Data ({nobj} objects) with {ncore} cores taking {total_time} mins'
 
 param_slack = dict(
 	token = OAuth_Token,
@@ -1197,3 +1270,4 @@ if delt > 60.:
 	dimen = 'hours'
 print('ALL PROCESS IS DONE.\t({} {})'.format(round(delt, 3), dimen))
 print(obs, newlist)
+"""""

@@ -7,7 +7,7 @@ def getccdinfo(obs, path_ccd):
 	ccddict = getccdinfo(obs, path_ccd)
 	
 	INPUT:
-	path_ccd = '/home/sonic/Research/table/obs.txt'
+	path_ccd = '/home/sonic/Research/table/obs.dat'
 
 	OUTPUT:
 	Type : Dictionary
@@ -18,9 +18,10 @@ def getccdinfo(obs, path_ccd):
 
 	outdict = dict()
 	outdict['obs'] = obs
-	outdict['gain'] = ccdtbl['gain'].item() * u.electron / u.second
+	# outdict['gain'] = ccdtbl['gain'].item() * u.electron / u.second
+	outdict['gain'] = ccdtbl['gain'].item() * u.electron / u.adu
 	outdict['pixelscale'] = ccdtbl['pixelscale'].item() *  u.arcsecond / u.pixel
 	outdict['fov'] = ccdtbl['fov'].item() * u.deg
-	outdict['rdnoise'] = ccdtbl['RDnoise'].item()
+	outdict['rdnoise'] = ccdtbl['RDnoise'].item() * u.electron
 
 	return outdict
