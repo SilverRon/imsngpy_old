@@ -78,7 +78,8 @@ except:
 """
 #	Test setting
 # path_raw = '/data6/obsdata/LOAO/1994_1026'
-path_raw = '/data6/obsdata/LOAO/1994_1003'
+# path_raw = '/data6/obsdata/LOAO/1994_1003'
+path_raw = '/data6/obsdata/LOAO/1969_0119'
 obs = 'LOAO'
 ncore = 8
 
@@ -113,6 +114,8 @@ path_find = '/home/paek/qsopy/phot/gregoryfind_bulk_mp_2021.py'
 logtbl = ascii.read(f'{path_log}/{obs.lower()}.log')
 hdrtbl = ascii.read(f'{path_table}/changehdr.dat')
 alltbl = ascii.read(f'{path_table}/alltarget.dat')
+frgtbl = ascii.read(f'{path_table}/fringe.dat')
+ccdtbl = ascii.read(f'{path_table}/ccd.dat') 
 
 path_data = f'{path_obs}/{os.path.basename(path_raw)}'
 
@@ -121,6 +124,7 @@ if os.path.exists(path_data):
 	print(rmcom)
 	os.system(rmcom)
 
+print(f"""{'-'*60}\n#\tCOPY DATA\n{'-'*60}""")
 cpcom = f'cp -r {path_raw} {path_data}'
 print(cpcom)
 os.system(cpcom)
@@ -135,6 +139,17 @@ comment = f"""{'-'*60}\n#\tHEADER CORRECTION\n{'-'*60}"""
 print(comment)
 
 for i, inim in enumerate(ic0.summary['file']):
+	#	CCD Type
+	if i == 0:
+		for key in set(ccdtbl['key']):
+			if key.lower() in ic0.summary.keys():
+				ccdtype = ccdtbl[
+					(ccdtbl['value'] == ic0.summary[key.lower()][i]) &
+					(ccdtbl['obs'] == obs)
+				]['ccd'].item()
+			else:
+				ccdtype = 'UNKNOWN'
+	fits.setval(f'{path_data}/{inim}', 'CCDNAME', value=ccdtype)
 	#	Correction with table
 	for key, val, nval in zip(hdrtbl['key'], hdrtbl['val'], hdrtbl['newval']):
 		if ic0.summary[key.lower()][i] == val:
@@ -167,8 +182,6 @@ for i, inim in enumerate(ic0.summary['file']):
 ic1 = ImageFileCollection(path_data, keywords='*')
 
 ccdinfo = getccdinfo(obs, ccddat)
-
-
 
 #============================================================
 #	Pre-processing
@@ -215,28 +228,18 @@ del flatframe
 #------------------------------------------------------------
 #	OBJECT Correction
 #------------------------------------------------------------
-print(f"""{'-'*60}\n#\tOBJECT CORRECTION\n{'-'*60}""")
-# for filte in set(ic1.filter(imagetyp='object').summary['filter']):
-	# print(f"""\n#\t{filte}-band\n""")
-'''
-for inim, filte, objexptime in zip(
-	ic1.filter(imagetyp='object').files,
-	ic1.filter(imagetyp='object').summary['filter'],
-	ic1.filter(imagetyp='object').summary['exptime'],	
-	):
-'''
-# print(f"[{i+1}/{len(ic1.filter(imagetyp='object', filter=filte).files)}] {os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
-
-def obj_process4mp(inim, filte, exptime, ccdinfo, mframe,):
+print(f"""{'-'*60}\n#\tOBJECT CORRECTION ({len(ic1.filter(imagetyp='object').files)})\n{'-'*60}""")
+#	Function for multi-process
+def obj_process4mp(inim, filte, exptime, darkexptime, ccdinfo, mframe,):
 	'''
 	Routine for multiprocess
 	'''
 	#	Find the closest exposuretime betw dark and object
 	indx_closet = np.where(
-		np.abs(objexptime-darkexptime) == np.min(np.abs(objexptime-darkexptime))
+		np.abs(exptime-darkexptime) == np.min(np.abs(exptime-darkexptime))
 	)
 	bestdarkexptime = darkexptime[indx_closet].item()
-	print(f"{os.path.basename(inim)} {objexptime} sec <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
+	print(f"{os.path.basename(inim)} {exptime} sec in {filte}-band <-- (scaled) DARK {int(darkexptime[indx_closet].item())} sec")
 	#	Process
 	nccd = obj_process(
 		inim=inim,
@@ -247,40 +250,44 @@ def obj_process4mp(inim, filte, exptime, ccdinfo, mframe,):
 		mdark=mframe['dark'][str(int(bestdarkexptime))],
 		mflat=mframe['flat'][filte],
 	)
-	# nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
-
-delt0 = []
-ncores = [1, 2, 3, 4, 5, 6, 7, 8]
-for ncore in ncores:
-	print(ncore)
-	st = time.time()
-	if __name__ == '__main__':
-		with multiprocessing.Pool(processes=ncore) as pool:
-			results = pool.starmap(
-				obj_process4mp,
-				zip(
-					ic1.filter(imagetyp='object').files[:100],
-					ic1.filter(imagetyp='object').summary['filter'][:100],
-					ic1.filter(imagetyp='object').summary['exptime'][:100],
-					repeat(ccdinfo),
-					repeat(mframe),
+	nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
+if __name__ == '__main__':
+	#	Fixed the number of cores (=4)
+	with multiprocessing.Pool(processes=4) as pool:
+		results = pool.starmap(
+			obj_process4mp,
+			zip(
+				ic1.filter(imagetyp='object').files,
+				ic1.filter(imagetyp='object').summary['filter'],
+				ic1.filter(imagetyp='object').summary['exptime'],
+				repeat(darkexptime),
+				repeat(ccdinfo),
+				repeat(mframe),
 				)
-				)
-	delt0.append(time.time()-st)					
-plt.close()
-plt.plot(ncores, delt, marker='s', ls='--', c='k', mfc='none', label='100 images (w/ save)')
-plt.plot(ncores, delt0, marker='s', ls='--', c='dodgerblue', mfc='none', label='100 images (w/ save)')
-plt.plot(ncores, np.array(delt)-np.array(delt0), marker='o', ls='--', c='tomato', mfc='none', label='difference')
+			)
+#	Image collection for pre-processed image
+fdzic = ImageFileCollection(f'{path_data}', glob_include='fdzobj*', keywords='*')
+#------------------------------------------------------------
+#	Defringe 
+#------------------------------------------------------------
+if len(frgtbl) > 0:
+	for filte in set(frgtbl[(frgtbl['ccd'] == ccdtype) & (frgtbl['obs'] == obs)]['filter']):
+		if (filte in fdzic.summary['filter']):
+			frgtbl_ = frgtbl[frgtbl['filter']==filte]
+			if __name__ == '__main__':
+				with multiprocessing.Pool(processes=ncore) as pool:
+					results = pool.starmap(
+						defringe,
+						zip(
+							fdzic.filter(filter=filte).files,
+							repeat(frgtbl_['image'][0]),
+							repeat(frgtbl_['table'][0]),
+							repeat(10)
+							)
+						)
 
-plt.xlabel('The number of core', fontsize=20)
-plt.ylabel('Time [s]', fontsize=20)
-plt.legend(fontsize=14)
-plt.savefig('preprocess.test.with.save.png', dpi=500)
-
-# del nccd
 
 """""
-
 #============================================================
 #	MAIN BODY
 #============================================================

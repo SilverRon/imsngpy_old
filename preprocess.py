@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy import units as u
 import numpy as np
+from astropy.io import ascii
 #	Bottleneck function for faster process
 def bn_median(masked_array, axis=None):
     """
@@ -132,3 +133,48 @@ def obj_process(inim, gain, readnoise, mbias, mdark, mflat,):
 	nccd.header['DIVFLAT'] = mflat.header['FILENAME']
 
 	return nccd
+#------------------------------------------------------------
+def defringe(inim, dfim, dfdat, size=5):
+	'''
+	inim : image to remove fringe
+	dfim : master fringe image
+	dfdat : master fringe data
+	size : pixel
+	'''
+
+	#	Image to process
+	data, hdr = fits.getdata(inim, header=True)
+	#	Master fringe
+	dataf, hdrf	= fits.getdata(dfim, header=True)
+
+	master_fri = fringe_cal(dfim, dfdat)
+	image_fri = fringe_cal(inim, dfdat)
+	fscale = np.median(image_fri/master_fri)
+	# print(fscale)
+	print(f"{os.path.basename(inim)}/{round(fscale, 3)} (<-- {os.path.basename(dfim)}) ==> df{os.path.basename(inim)}")
+
+	fri_scaled = dataf*fscale
+	dfdata = data-fri_scaled
+	outim = f'{os.path.dirname(inim)}/df{os.path.basename(inim)}'
+	fits.writeto(outim, dfdata, hdr, overwrite=True)
+
+	return outim
+#------------------------------------------------------------
+def fringe_cal(dfim, dfdat, size=5):
+	data, hdr	= fits.getdata(dfim, header=True)
+
+	dfr_list	= []
+	dftbl = ascii.read(dfdat)
+	#	Bright position
+	xb1, xb2 = dftbl['xb']-size, dftbl['xb']+size
+	yb1, yb2 = dftbl['yb']-size, dftbl['yb']+size
+	#	Faint position
+	xf1, xf2 = dftbl['xf']-size, dftbl['xf']+size
+	yf1, yf2 = dftbl['yf']-size, dftbl['yf']+size
+
+	for n in range(len(dftbl)):
+		fringe_b= np.median(data[yb1[n]:yb2[n], xb1[n]:xb2[n]])
+		fringe_f= np.median(data[yf1[n]:yf2[n], xf1[n]:xf2[n]])		
+		dfringe	= fringe_b-fringe_f
+		dfr_list.append(dfringe)
+	return np.array(dfr_list)
