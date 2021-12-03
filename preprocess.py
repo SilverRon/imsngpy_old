@@ -178,3 +178,38 @@ def fringe_cal(dfim, dfdat, size=5):
 		dfringe	= fringe_b-fringe_f
 		dfr_list.append(dfringe)
 	return np.array(dfr_list)
+#------------------------------------------------------------
+def astrometry(inim, pixscale=None, frac=None, ra=None, dec=None, radius=None, cpulimit=60):
+	'''
+	ra : hh:mm:ss
+	dec : dd:mm:ss
+	radius [deg]
+	'''
+	com = f'solve-field {inim} '
+	outim = f'{os.path.dirname(inim)}/a{os.path.basename(inim)}'
+	if (pixscale != None) & (type(pixscale) == float):
+		if frac == None:
+			frac = 0.10 # 10% interval of pixel scale as default
+		upscl = pixscale+pixscale*frac
+		loscl = pixscale-pixscale*frac
+		com = f'{com} --scale-unit arcsecperpix --scale-low {loscl} --scale-high {upscl} '
+	if (ra != None) & (dec != None):
+		if radius == None:
+			radius = 1 # 1 deg as default
+		com = f'{com} --ra {ra} --dec {dec} --radius {radius}'
+	com = f'{com} --no-plots --new-fits {outim} --overwrite --use-sextractor --cpulimit {cpulimit}'
+#------------------------------------------------------------
+def fnamechange(inim):
+	with fits.open(fits_image_filename) as hdul:
+		hdul.verify('fix')
+		hdr = hdul[0].header
+		obs = hdr['OBSERVAT']
+		obj = hdr['OBJECT']
+		dateobs = hdr['DATE-OBS']
+		datestr = dateobs[0:4]+dateobs[5:7]+dateobs[8:10]
+		timestr = dateobs[11:13]+dateobs[14:16]+dateobs[17:19]
+		filte = hdr['FILTER']
+		exptime = int(hdr['EXPTIME'])
+
+	newim = f'Calib-{obs}-{obj}-{datestr}-{timestr}-{filte}-{exptime}.fits'
+	return newtim

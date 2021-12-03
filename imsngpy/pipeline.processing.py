@@ -180,9 +180,20 @@ for i, inim in enumerate(ic0.summary['file']):
 		del tail
 	print()
 ic1 = ImageFileCollection(path_data, keywords='*')
+#------------------------------------------------------------
+#	Object Master Table
+#
+#	Write the status of processing
+#	Pointing the original filename and updated filename
+omtbl = Table()
+omtbl['raw'] = ic1.files
+omtbl['now'] = omtbl['raw']
+omtbl['preprocess'] = ' '*100
+omtbl['defringe'] = ' '*100
+omtbl['cosmic_ray_removal'] = ' '*100
+omtbl['astrometry'] = ' '*100
 
 ccdinfo = getccdinfo(obs, ccddat)
-
 #============================================================
 #	Pre-processing
 #------------------------------------------------------------
@@ -286,6 +297,17 @@ if len(frgtbl) > 0:
 							)
 						)
 
+#------------------------------------------------------------
+#	FIX (TMP)
+#------------------------------------------------------------
+
+#------------------------------------------------------------
+#	COSMIC-RAY REMOVAL
+#------------------------------------------------------------
+
+#------------------------------------------------------------
+#	ASTROMETRY
+#------------------------------------------------------------
 
 """""
 #============================================================
