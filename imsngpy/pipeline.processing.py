@@ -2,6 +2,7 @@
 #	IMSNG Pipeline
 #	=> Processing
 #	Data Monitoring => Processing => Transient Search
+#%%
 #============================================================
 #	Library
 #------------------------------------------------------------
@@ -9,8 +10,10 @@ import os
 import glob
 import sys
 sys.path.append('/home/paek/imsngpy')
+#	IMSNGpy modules
 from tableutil import getccdinfo
 from preprocess import *
+from misc import *
 import warnings
 warnings.filterwarnings(action='ignore')
 import time
@@ -82,7 +85,6 @@ except:
 path_raw = '/data6/obsdata/LOAO/1969_0119'
 obs = 'LOAO'
 ncore = 8
-
 #------------------------------------------------------------
 #	PATH
 #------------------------------------------------------------
@@ -119,6 +121,10 @@ ccdtbl = ascii.read(f'{path_table}/ccd.dat')
 
 path_data = f'{path_obs}/{os.path.basename(path_raw)}'
 
+ccdinfo = getccdinfo(obs, ccddat)
+gain = ccdinfo['gain']
+rdnoise = ccdinfo['rdnoise']
+
 if os.path.exists(path_data):
 	rmcom = f'rm -rf {path_data}'
 	print(rmcom)
@@ -131,8 +137,8 @@ os.system(cpcom)
 
 ic0 = ImageFileCollection(path_data, keywords='*')
 # ic0.summary.write('{}/hdr.raw.dat'.format(path_data), format='ascii.tab', overwrite=True)
-
 #------------------------------------------------------------
+#%%
 #	Header correction
 #------------------------------------------------------------
 comment = f"""{'-'*60}\n#\tHEADER CORRECTION\n{'-'*60}"""
@@ -180,21 +186,24 @@ for i, inim in enumerate(ic0.summary['file']):
 		del tail
 	print()
 ic1 = ImageFileCollection(path_data, keywords='*')
+#%%
 #------------------------------------------------------------
 #	Object Master Table
 #
 #	Write the status of processing
 #	Pointing the original filename and updated filename
+#	Each dtype is set to 'strtype' variable
+strtype = 'U300'
 omtbl = Table()
-omtbl['raw'] = ic1.files
+omtbl['raw'] = [os.path.basename(inim) for inim in ic1.filter(imagetyp='object').files]
 omtbl['now'] = omtbl['raw']
-omtbl['preprocess'] = ' '*100
-omtbl['defringe'] = ' '*100
-omtbl['cosmic_ray_removal'] = ' '*100
-omtbl['astrometry'] = ' '*100
-
-ccdinfo = getccdinfo(obs, ccddat)
+omtbl['preprocess'] = ''
+omtbl['defringe'] = ''
+omtbl['cosmic_ray_removal'] = ''
+omtbl['astrometry'] = ''
+for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 #============================================================
+#%%
 #	Pre-processing
 #------------------------------------------------------------
 mframe = dict()
@@ -241,7 +250,7 @@ del flatframe
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tOBJECT CORRECTION ({len(ic1.filter(imagetyp='object').files)})\n{'-'*60}""")
 #	Function for multi-process
-def obj_process4mp(inim, filte, exptime, darkexptime, ccdinfo, mframe,):
+def obj_process4mp(inim, newim, filte, exptime, darkexptime, ccdinfo, mframe,):
 	'''
 	Routine for multiprocess
 	'''
@@ -261,7 +270,10 @@ def obj_process4mp(inim, filte, exptime, darkexptime, ccdinfo, mframe,):
 		mdark=mframe['dark'][str(int(bestdarkexptime))],
 		mflat=mframe['flat'][filte],
 	)
-	nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
+	# nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
+	nccd.write(newim, overwrite=True)
+#	Run with multi-process
+fdzimlist = add_prepix(ic1.filter(imagetyp='object').files, 'fdz')
 if __name__ == '__main__':
 	#	Fixed the number of cores (=4)
 	with multiprocessing.Pool(processes=4) as pool:
@@ -269,6 +281,7 @@ if __name__ == '__main__':
 			obj_process4mp,
 			zip(
 				ic1.filter(imagetyp='object').files,
+				fdzimlist,
 				ic1.filter(imagetyp='object').summary['filter'],
 				ic1.filter(imagetyp='object').summary['exptime'],
 				repeat(darkexptime),
@@ -278,11 +291,17 @@ if __name__ == '__main__':
 			)
 #	Image collection for pre-processed image
 fdzic = ImageFileCollection(f'{path_data}', glob_include='fdzobj*', keywords='*')
+omtbl['preprocess'] = fdzimlist
+omtbl['now'] = fdzimlist
+del fdzimlist
 #------------------------------------------------------------
+#%%
 #	Defringe 
 #------------------------------------------------------------
+print(f"""{'-'*60}\n#\tFRINGE CORRECTION\n{'-'*60}""")
 if len(frgtbl) > 0:
 	for filte in set(frgtbl[(frgtbl['ccd'] == ccdtype) & (frgtbl['obs'] == obs)]['filter']):
+		dfimlist = add_prepix(fdzic.filter(filter=filte).files, 'df')
 		if (filte in fdzic.summary['filter']):
 			frgtbl_ = frgtbl[frgtbl['filter']==filte]
 			if __name__ == '__main__':
@@ -292,20 +311,37 @@ if len(frgtbl) > 0:
 						zip(
 							fdzic.filter(filter=filte).files,
 							repeat(frgtbl_['image'][0]),
+							dfimlist,
 							repeat(frgtbl_['table'][0]),
 							repeat(10)
 							)
 						)
-
+		del dfimlist
+		for inim_path in fdzic.filter(filter=filte).files:
+			inim = os.path.basename(inim_path)
+			indx_tmp = np.where(omtbl['now'] == os.path.basename(inim_path))
+			omtbl['defringe'][indx_tmp] = inim
+			omtbl['now'][indx_tmp] = f'df{inim}'
+		del indx_tmp
+#%%
 #------------------------------------------------------------
 #	FIX (TMP)
 #------------------------------------------------------------
 
+
 #------------------------------------------------------------
 #	COSMIC-RAY REMOVAL
 #------------------------------------------------------------
+#	Seeing measurement w/ simple SE
+
+
+
+
+# outim = f"{path_data}/cr{omtbl['now'][0]}"
+# cosmic_ray_removal(omtbl['now'][0], outim, gain.value, rdnoise.value)
 
 #------------------------------------------------------------
+#%%
 #	ASTROMETRY
 #------------------------------------------------------------
 
@@ -1148,7 +1184,7 @@ if len(hdimlist) != 0:
 	tstbl['hdim'] = hdimlist
 	tskeys = ['hdcat', 'hcim', 'inim', 'scicat']
 	for key in tskeys:
-		tstbl[key] = ' '*100
+		tstbl[key] = ''
 	tstbl['fovval'] = fovval
 
 	for i, hdim in enumerate(hdimlist):

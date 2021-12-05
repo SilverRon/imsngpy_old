@@ -6,6 +6,8 @@ from astropy.io import fits
 from astropy import units as u
 import numpy as np
 from astropy.io import ascii
+from astroscrappy import detect_cosmics
+import time
 #	Bottleneck function for faster process
 def bn_median(masked_array, axis=None):
     """
@@ -134,33 +136,30 @@ def obj_process(inim, gain, readnoise, mbias, mdark, mflat,):
 
 	return nccd
 #------------------------------------------------------------
-def defringe(inim, dfim, dfdat, size=5):
+def defringe(inim, dfim, outim, dfdat, size=5):
 	'''
 	inim : image to remove fringe
 	dfim : master fringe image
 	dfdat : master fringe data
 	size : pixel
 	'''
-
 	#	Image to process
 	data, hdr = fits.getdata(inim, header=True)
 	#	Master fringe
 	dataf, hdrf	= fits.getdata(dfim, header=True)
 
-	master_fri = fringe_cal(dfim, dfdat)
-	image_fri = fringe_cal(inim, dfdat)
+	master_fri = fringe_calc(dfim, dfdat, size=size)
+	image_fri = fringe_calc(inim, dfdat, size=size)
 	fscale = np.median(image_fri/master_fri)
 	# print(fscale)
 	print(f"{os.path.basename(inim)}/{round(fscale, 3)} (<-- {os.path.basename(dfim)}) ==> df{os.path.basename(inim)}")
 
 	fri_scaled = dataf*fscale
 	dfdata = data-fri_scaled
-	outim = f'{os.path.dirname(inim)}/df{os.path.basename(inim)}'
 	fits.writeto(outim, dfdata, hdr, overwrite=True)
-
 	return outim
 #------------------------------------------------------------
-def fringe_cal(dfim, dfdat, size=5):
+def fringe_calc(dfim, dfdat, size=5):
 	data, hdr	= fits.getdata(dfim, header=True)
 
 	dfr_list	= []
@@ -213,3 +212,41 @@ def fnamechange(inim):
 
 	newim = f'Calib-{obs}-{obj}-{datestr}-{timestr}-{filte}-{exptime}.fits'
 	return newtim
+#------------------------------------------------------------
+def cosmic_ray_removal(inim, outim, gain, rdnoise):
+	'''
+	inim 
+	obs = 'LOAO'
+	gain = 2.68
+	rdnoise = 4.84
+	'''
+
+	data, hdr = fits.getdata(inim, header=True)
+	param_cr = dict(
+					indat=data,
+					sigclip=4.5,
+					sigfrac=0.3,
+					objlim=5.0,
+					gain=gain, readnoise=rdnoise, 
+					pssl=0.0,
+					niter=4,
+					sepmed=True,
+					cleantype='meanmask',
+					fsmode='median',
+					psfmodel='gauss',
+					psffwhm=hdr['seeing'],
+					#	Don't touch
+					inmask=None,
+					satlevel=65536.0,
+					psfsize=7, psfk=None, psfbeta=4.765,
+					verbose=False
+					)
+	time_st = time.time()
+	mcrdata, crdata = detect_cosmics(**param_cr)
+	fits.writeto(outim, crdata, hdr, overwrite=True)
+	time_delta = time.time() - time_st
+	indx_cr = np.where(mcrdata == True)
+	fits.setval(outim, 'CR', value=len(indx_cr[0]), comment='# of removed cosmic ray by Astroscrappy')
+	#------------------------------------------------------------
+	print(f"{inim} : Remove {len(indx_cr[0])} cosmic-ray pixels [{round(time_delta, 1)} sec]")
+
