@@ -1,5 +1,12 @@
 import requests
 import os
+from astropy.io import fits
+import sys
+sys.path.append('/home/paek/imsngpy')
+from phot import *
+import numpy as np
+from astropy.io import ascii
+from astropy import units as u
 
 def slack_bot(token, channel, text):
 	response = requests.post("https://slack.com/api/chat.postMessage",
@@ -16,7 +23,7 @@ def add_prepix(imlist, prefix):
 	'''
 	return [f'{os.path.dirname(inim)}/{prefix}{os.path.basename(inim)}' for inim in imlist]
 
-def SE_seeing(inim, gain, pixscale, path_config, seeing_assume, frac=0.68, clean=True):
+def get_seeing(inim, gain, pixscale, fov, path_conf, path_param, path_conv, path_nnw, seeing_assume=3, frac=0.68, n_min_src=5):
 	'''
 	inim = '/data3/paek/factory/loao/2020_1215/afzobj.NGC2207.20201216.0211.fits'
 	path_config = '/home/paek/config'
@@ -24,6 +31,7 @@ def SE_seeing(inim, gain, pixscale, path_config, seeing_assume, frac=0.68, clean
 	path_obs = '/home/paek/table/obs.dat'
 	seeing_assume = 3 * u.arcsecond
 	frac = 0.68
+	n_min_src = 5 # Calc. seeing value if has more than 5 stars, or not --> Fix 3 arcsec
 	'''
 	#------------------------------------------------------------
 	#	Input
@@ -31,48 +39,26 @@ def SE_seeing(inim, gain, pixscale, path_config, seeing_assume, frac=0.68, clean
 	hdr = fits.getheader(inim)
 	a = hdr['naxis1']/2.
 	b = hdr['naxis2']/2.
-	#------------------------------------------------------------
-	#	CCD information
-	obsdict = getccdinfo(obs, path_obs)
-	gain = obsdict['gain']
-	pixscale = obsdict['pixelscale']
-	fov = obsdict['fov']
-	# rdnoise = obsdict['readoutnoise']
+	#	Small squre based on frac
+	a_ = a*np.sqrt(frac)
+	b_ = b*np.sqrt(frac)
+	
 	#------------------------------------------------------------
 	#	OUTPUT NAMES
-	fmt0 = '.fits'
-	fmt1 = '.fit'
-	fmt2 = '.fts'
-
-	if fmt0 in inim:
-		cat = '{}/{}'.format(os.path.dirname(inim), os.path.basename(inim).replace(fmt0, '.cat'))
-	elif fmt1 in inim:
-		cat = '{}/{}'.format(os.path.dirname(inim), os.path.basename(inim).replace(fmt1, '.cat'))
-	elif fmt2 in inim:
-		cat = '{}/{}'.format(os.path.dirname(inim), os.path.basename(inim).replace(fmt2, '.cat'))
-
-	# cat = '{}/{}'.format(os.path.dirname(inim), os.path.basename(inim).replace('.fits', '.cat'))
-	#	SE configurations
-
-	
-
-	param = '{}/simple.param'.format(path_config)
-	conv = '{}/simple.conv'.format(path_config)
-	nnw = '{}/simple.nnw'.format(path_config)
-	conf = '{}/simple.sex'.format(path_config)
+	outcat = f'{os.path.splitext(inim)[0]}.simple{os.path.splitext(inim)[-1]}'
 	#	SE parameters
 	param_insex = dict(
 						#------------------------------
 						#	CATALOG
 						#------------------------------
-						CATALOG_NAME = cat,
+						CATALOG_NAME = outcat,
 						#------------------------------
 						#	CONFIG FILES
 						#------------------------------
-						CONF_NAME = conf,
-						PARAMETERS_NAME = param,
-						FILTER_NAME = conv,    
-						STARNNW_NAME = nnw,
+						CONF_NAME = path_conf,
+						PARAMETERS_NAME = path_param,
+						FILTER_NAME = path_conv,    
+						STARNNW_NAME = path_nnw,
 						#------------------------------
 						#	PHOTOMETRY
 						#------------------------------
@@ -84,33 +70,61 @@ def SE_seeing(inim, gain, pixscale, path_config, seeing_assume, frac=0.68, clean
 						SEEING_FWHM = str(seeing_assume.value),
 						)
 
-	com = phot.sexcom(inim, param_insex)
+	com = sexcom(inim, param_insex)
 	os.system(com)
-	rawtbl = ascii.read(cat)
+	rawtbl = ascii.read(outcat)
+	#	Test plots
+	# plt.hist(rawtbl['FLAGS'], bins=np.arange(0, 10+1, 1))
+	# plt.hist(rawtbl['CLASS_STAR'], bins=np.arange(0, 1.0+0.1, 0.1))
+	# plt.hist(rawtbl['FWHM_WORLD'].arcsec, bins=np.arange(0.5, 10+0.1, 0.1))
+
 	#	Point source selection
 	indx_sel = np.where(
+						#	Good point source
 						(rawtbl['FLAGS'] == 0) &
-						(sqsum((rawtbl['X_IMAGE']-a)/a, (rawtbl['Y_IMAGE']-b)/b) < frac) &
 						(rawtbl['CLASS_STAR']>0.9) &
-						(rawtbl['FWHM_WORLD']>0.0)
+						(rawtbl['FWHM_WORLD']>0.0) &
+						#	Nearby center
+						(rawtbl['X_IMAGE']>a-a_) & (rawtbl['X_IMAGE']<a+a_) &
+						(rawtbl['Y_IMAGE']>b-b_) & (rawtbl['Y_IMAGE']<b+b_)
+						#	Former criterion (version 1)
+						# (sqsum((rawtbl['X_IMAGE']-a)/a, (rawtbl['Y_IMAGE']-b)/b) < frac) &
 						)
 	seltbl = rawtbl[indx_sel]
 	#	Seeing in arcsecond/pixel as median value
-	seeing = np.median(seltbl['FWHM_WORLD'].to(u.arcsecond))
-	peeing = np.median(seltbl['FWHM_IMAGE']) * u.pix
-	#	Header update
-	try:
-		puthdr(inim, hdrkey='SEEING', hdrval=seeing.value, hdrcomment='SEEING [arcsec]')
-		puthdr(inim, hdrkey='PEEING', hdrval=peeing.value, hdrcomment='PEEING [pix]')
-	except:
-		print('try/except: Too low stars to measure seeing. Use 3.0 arcsecond seeing.')
-		puthdr(inim, hdrkey='SEEING', hdrval=3.0, hdrcomment='SEEING [arcsec]')
-		puthdr(inim, hdrkey='PEEING', hdrval=(3.0*u.arcsecond*pixscale).value, hdrcomment='PEEING [pix]')
-	#	Clean output catalog
-	if clean == True:
-		rmcom = 'rm {}'.format(cat)
-		# print(rmcom)
-		os.system(rmcom)
+	if len(seltbl) >= n_min_src:
+		seeing = np.median(seltbl['FWHM_WORLD'].to(u.arcsecond))
+		peeing = np.median(seltbl['FWHM_IMAGE']) * u.pix
 	else:
-		pass
+		print(f'{os.path.basename(inim)} has not enough point sources (n<5). Set seeing {seeing_assume}')
+		seeing = seeing_assume*u.arcsec
+		peeing = seeing_assume*pixscale
+	#	Test plots
+	# plt.close()
+	# plt.title(f'frac = {frac}')
+	# plt.plot(rawtbl['X_IMAGE'], rawtbl['Y_IMAGE'], marker='o', ls='none', label=f'all({len(rawtbl)})')
+	# plt.plot(seltbl['X_IMAGE'], seltbl['Y_IMAGE'], marker='.', ls='none', label=f'select({len(seltbl)}):seeing={round(seeing.value, 3)*u.arcsec}')
+	# plt.xlabel('X_IMAGE')
+	# plt.ylabel('Y_IMAGE')
+	# plt.legend()
+	#	
+	#	Header update
+	fits.setval(inim, 'NSEEING', value=len(seltbl), comment='# of point sources to measure the seeing')
+	fits.setval(inim, 'SEEING', value=round(seeing.value, 3), comment='SEEING [arcsec]')
+	fits.setval(inim, 'PEEING', value=round(peeing.value, 3), comment='PEEING [arcsec]')
 	return seeing, peeing
+#------------------------------------------------------------
+def fnamechange(inim):
+	with fits.open(fits_image_filename) as hdul:
+		hdul.verify('fix')
+		hdr = hdul[0].header
+		obs = hdr['OBSERVAT']
+		obj = hdr['OBJECT']
+		dateobs = hdr['DATE-OBS']
+		datestr = dateobs[0:4]+dateobs[5:7]+dateobs[8:10]
+		timestr = dateobs[11:13]+dateobs[14:16]+dateobs[17:19]
+		filte = hdr['FILTER']
+		exptime = int(hdr['EXPTIME'])
+
+	newim = f'Calib-{obs}-{obj}-{datestr}-{timestr}-{filte}-{exptime}.fits'
+	return newtim

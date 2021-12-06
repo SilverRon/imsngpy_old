@@ -197,21 +197,7 @@ def astrometry(inim, pixscale=None, frac=None, ra=None, dec=None, radius=None, c
 			radius = 1 # 1 deg as default
 		com = f'{com} --ra {ra} --dec {dec} --radius {radius}'
 	com = f'{com} --no-plots --new-fits {outim} --overwrite --use-sextractor --cpulimit {cpulimit}'
-#------------------------------------------------------------
-def fnamechange(inim):
-	with fits.open(fits_image_filename) as hdul:
-		hdul.verify('fix')
-		hdr = hdul[0].header
-		obs = hdr['OBSERVAT']
-		obj = hdr['OBJECT']
-		dateobs = hdr['DATE-OBS']
-		datestr = dateobs[0:4]+dateobs[5:7]+dateobs[8:10]
-		timestr = dateobs[11:13]+dateobs[14:16]+dateobs[17:19]
-		filte = hdr['FILTER']
-		exptime = int(hdr['EXPTIME'])
 
-	newim = f'Calib-{obs}-{obj}-{datestr}-{timestr}-{filte}-{exptime}.fits'
-	return newtim
 #------------------------------------------------------------
 def cosmic_ray_removal(inim, outim, gain, rdnoise):
 	'''

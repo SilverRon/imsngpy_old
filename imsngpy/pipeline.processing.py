@@ -14,6 +14,7 @@ sys.path.append('/home/paek/imsngpy')
 from tableutil import getccdinfo
 from preprocess import *
 from misc import *
+from phot import *
 import warnings
 warnings.filterwarnings(action='ignore')
 import time
@@ -90,7 +91,8 @@ ncore = 8
 #------------------------------------------------------------
 path_factory = '/data3/paek/factory'
 path_gal = '/data6/IMSNG/IMSNGgalaxies'
-path_config = '/home/paek/config'
+# path_config = '/home/paek/config'
+path_config = '/home/paek/imsngpy/config'
 path_log = '/home/paek/log'
 path_bkg = '/data6/bkgdata'
 path_table = '/home/paek/table'
@@ -333,9 +335,17 @@ if len(frgtbl) > 0:
 #	COSMIC-RAY REMOVAL
 #------------------------------------------------------------
 #	Seeing measurement w/ simple SE
+gain = ccdinfo['gain']
+pixscale = ccdinfo['pixelscale']
+fov = ccdinfo['fov']
+prefix = 'simple'
+path_conf = f'{path_config}/{prefix}.sex'
+path_param = f'{path_config}/{prefix}.param'
+path_nnw = f'{path_config}/{prefix}.nnw'
+path_conv = f'{path_config}/{prefix}.conv'
 
-
-
+inim = omtbl['now'][0]
+get_seeing(inim, gain, pixscale, fov, path_conf, path_param, path_conv, path_nnw, seeing_assume=3*u.arcsec, frac=0.68, n_min_src=5)
 
 # outim = f"{path_data}/cr{omtbl['now'][0]}"
 # cosmic_ray_removal(omtbl['now'][0], outim, gain.value, rdnoise.value)
