@@ -45,7 +45,7 @@ def get_seeing(inim, gain, pixscale, fov, path_conf, path_param, path_conv, path
 	
 	#------------------------------------------------------------
 	#	OUTPUT NAMES
-	outcat = f'{os.path.splitext(inim)[0]}.simple{os.path.splitext(inim)[-1]}'
+	outcat = f'{os.path.splitext(inim)[0]}.simple.cat'
 	#	SE parameters
 	param_insex = dict(
 						#------------------------------

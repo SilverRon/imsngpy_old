@@ -21,7 +21,7 @@ def getccdinfo(obs, path_ccd):
 	# outdict['gain'] = ccdtbl['gain'].item() * u.electron / u.second
 	outdict['gain'] = ccdtbl['gain'].item() * u.electron / u.adu
 	outdict['pixelscale'] = ccdtbl['pixelscale'].item() *  u.arcsecond / u.pixel
-	outdict['fov'] = ccdtbl['fov'].item() * u.deg
+	outdict['fov'] = ccdtbl['fov'].item() * u.arcmin
 	outdict['rdnoise'] = ccdtbl['RDnoise'].item() * u.electron
 
 	return outdict

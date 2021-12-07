@@ -156,6 +156,10 @@ def defringe(inim, dfim, outim, dfdat, size=5):
 
 	fri_scaled = dataf*fscale
 	dfdata = data-fri_scaled
+
+	hdr['HISTORY'] = 'Fringe pattern correction'
+	hdr['FRINGEF'] = (round(fscale, 3), 'Flux scaling for defringe [image/master]')
+
 	fits.writeto(outim, dfdata, hdr, overwrite=True)
 	return outim
 #------------------------------------------------------------
@@ -177,15 +181,77 @@ def fringe_calc(dfim, dfdat, size=5):
 		dfringe	= fringe_b-fringe_f
 		dfr_list.append(dfringe)
 	return np.array(dfr_list)
+
 #------------------------------------------------------------
-def astrometry(inim, pixscale=None, frac=None, ra=None, dec=None, radius=None, cpulimit=60):
+def cosmic_ray_removal(inim, outim, gain, rdnoise, seeing=3*u.arcsec, cleantype='medmask'):
+	'''
+	inim 
+	obs = 'LOAO'
+	gain = 2.68
+	rdnoise = 4.84
+	'''
+	if gain.unit == u.electron/u.adu:
+		gain = gain.value
+	if rdnoise.unit == u.electron:
+		rdnoise = rdnoise.value
+	if seeing.unit == u.arcsec:
+		seeing = seeing.value
+		
+	data, hdr = fits.getdata(inim, header=True)
+	param_cr = dict(
+					indat=data,
+					sigclip=4.5,
+					sigfrac=0.3,
+					objlim=5.0,
+					gain=gain, readnoise=rdnoise, 
+					pssl=0.0,
+					niter=4,
+					sepmed=True,
+					# cleantype='meanmask',
+					# cleantype='idw',
+					# cleantype='median',
+					# cleantype='medmask',
+					cleantype=cleantype,
+					fsmode='median',
+					psfmodel='gauss',
+					psffwhm=hdr['seeing'],
+					#	Don't touch
+					# inbkg=None,
+					# inval=None,
+					inmask=None,
+					satlevel=65536.0,
+					psfsize=7, psfk=None, psfbeta=4.765,
+					verbose=False
+					)
+	time_st = time.time()
+	mcrdata, crdata = detect_cosmics(**param_cr)
+	ncr = len(crdata[mcrdata])
+	hdr['HISTORY'] = 'Cosmic-ray and bad pixels correction with astroscrappy'
+	hdr['CRNUMB'] = (ncr, '# of removed cosmic ray by Astroscrappy')
+	hdr['CRTYPE'] = (cleantype, 'Clean type for cosmic-ray removal')
+
+	fits.writeto(outim, crdata, hdr, overwrite=True)
+	#	Mask array
+	moutim = ''.join([os.path.splitext(outim)[0], '.mask.fits'])
+	fits.writeto(moutim, mcrdata+0, hdr, overwrite=True)
+	time_delta = time.time() - time_st
+	#------------------------------------------------------------
+	print(f"Remove {ncr} cosmic-ray pixels [{round(time_delta, 1)} sec]")
+	print(f'{os.path.basename(inim)} --> {os.path.basename(outim)}')
+	print(f'Mask : {os.path.basename(moutim)}')
+
+#------------------------------------------------------------
+def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=None, cpulimit=60):
 	'''
 	ra : hh:mm:ss
 	dec : dd:mm:ss
 	radius [deg]
 	'''
+	if pixscale.unit == u.arcsec/u.pixel:
+		pixscale = pixscale.value
+	if (radius.unit == u.deg) | (radius.unit == u.arcmin) | (radius.unit == u.arcsec):
+		radius = radius.to(u.deg).value
 	com = f'solve-field {inim} '
-	outim = f'{os.path.dirname(inim)}/a{os.path.basename(inim)}'
 	if (pixscale != None) & (type(pixscale) == float):
 		if frac == None:
 			frac = 0.10 # 10% interval of pixel scale as default
@@ -197,42 +263,4 @@ def astrometry(inim, pixscale=None, frac=None, ra=None, dec=None, radius=None, c
 			radius = 1 # 1 deg as default
 		com = f'{com} --ra {ra} --dec {dec} --radius {radius}'
 	com = f'{com} --no-plots --new-fits {outim} --overwrite --use-sextractor --cpulimit {cpulimit}'
-
-#------------------------------------------------------------
-def cosmic_ray_removal(inim, outim, gain, rdnoise):
-	'''
-	inim 
-	obs = 'LOAO'
-	gain = 2.68
-	rdnoise = 4.84
-	'''
-
-	data, hdr = fits.getdata(inim, header=True)
-	param_cr = dict(
-					indat=data,
-					sigclip=4.5,
-					sigfrac=0.3,
-					objlim=5.0,
-					gain=gain, readnoise=rdnoise, 
-					pssl=0.0,
-					niter=4,
-					sepmed=True,
-					cleantype='meanmask',
-					fsmode='median',
-					psfmodel='gauss',
-					psffwhm=hdr['seeing'],
-					#	Don't touch
-					inmask=None,
-					satlevel=65536.0,
-					psfsize=7, psfk=None, psfbeta=4.765,
-					verbose=False
-					)
-	time_st = time.time()
-	mcrdata, crdata = detect_cosmics(**param_cr)
-	fits.writeto(outim, crdata, hdr, overwrite=True)
-	time_delta = time.time() - time_st
-	indx_cr = np.where(mcrdata == True)
-	fits.setval(outim, 'CR', value=len(indx_cr[0]), comment='# of removed cosmic ray by Astroscrappy')
-	#------------------------------------------------------------
-	print(f"{inim} : Remove {len(indx_cr[0])} cosmic-ray pixels [{round(time_delta, 1)} sec]")
-
+	os.system(com)

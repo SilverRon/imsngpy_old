@@ -33,15 +33,11 @@ import multiprocessing
 # from timeit import default_timer as timer
 # from numba import jit
 # from pyraf import iraf
-# import numpy as np
 # import matplotlib.pyplot as plt
 # plt.ioff()
 # from astropy.nddata import CCDData
 # from imsng import calib
 # from imsng import tool_tbd
-# from itertools import product
-# from itertools import repeat
-# import multiprocessing
 #------------------------------------------------------------
 #	My library
 # from tableutil import *
@@ -126,6 +122,9 @@ path_data = f'{path_obs}/{os.path.basename(path_raw)}'
 ccdinfo = getccdinfo(obs, ccddat)
 gain = ccdinfo['gain']
 rdnoise = ccdinfo['rdnoise']
+pixscale = ccdinfo['pixelscale']
+fov = ccdinfo['fov']
+
 
 if os.path.exists(path_data):
 	rmcom = f'rm -rf {path_data}'
@@ -197,7 +196,7 @@ ic1 = ImageFileCollection(path_data, keywords='*')
 #	Each dtype is set to 'strtype' variable
 strtype = 'U300'
 omtbl = Table()
-omtbl['raw'] = [os.path.basename(inim) for inim in ic1.filter(imagetyp='object').files]
+omtbl['raw'] = [inim for inim in ic1.filter(imagetyp='object').files]
 omtbl['now'] = omtbl['raw']
 omtbl['preprocess'] = ''
 omtbl['defringe'] = ''
@@ -296,35 +295,40 @@ fdzic = ImageFileCollection(f'{path_data}', glob_include='fdzobj*', keywords='*'
 omtbl['preprocess'] = fdzimlist
 omtbl['now'] = fdzimlist
 del fdzimlist
+for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 #------------------------------------------------------------
 #%%
 #	Defringe 
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tFRINGE CORRECTION\n{'-'*60}""")
-if len(frgtbl) > 0:
-	for filte in set(frgtbl[(frgtbl['ccd'] == ccdtype) & (frgtbl['obs'] == obs)]['filter']):
-		dfimlist = add_prepix(fdzic.filter(filter=filte).files, 'df')
-		if (filte in fdzic.summary['filter']):
-			frgtbl_ = frgtbl[frgtbl['filter']==filte]
-			if __name__ == '__main__':
-				with multiprocessing.Pool(processes=ncore) as pool:
-					results = pool.starmap(
-						defringe,
-						zip(
-							fdzic.filter(filter=filte).files,
-							repeat(frgtbl_['image'][0]),
-							dfimlist,
-							repeat(frgtbl_['table'][0]),
-							repeat(10)
-							)
+# for filte in set(frgtbl[(frgtbl['ccd'] == ccdtype) & (frgtbl['obs'] == obs)]['filter']):
+for filte in set(fdzic.summary['filter']):
+	frgtbl_ = frgtbl[
+		(frgtbl['filter']==filte) &
+		(frgtbl['ccd'] == ccdtype) &
+		(frgtbl['obs'] == obs)
+		]
+	if len(frgtbl_) > 0:
+		if __name__ == '__main__':
+			with multiprocessing.Pool(processes=ncore) as pool:
+				results = pool.starmap(
+					defringe,
+					zip(
+						fdzic.filter(filter=filte).files,
+						repeat(frgtbl_['image'][0]),
+						add_prepix(fdzic.filter(filter=filte).files, 'df'),
+						repeat(frgtbl_['table'][0]),
+						repeat(10)
 						)
-		del dfimlist
-		for inim_path in fdzic.filter(filter=filte).files:
-			inim = os.path.basename(inim_path)
-			indx_tmp = np.where(omtbl['now'] == os.path.basename(inim_path))
-			omtbl['defringe'][indx_tmp] = inim
-			omtbl['now'][indx_tmp] = f'df{inim}'
-		del indx_tmp
+					)
+				for i, inim in enumerate(fdzic.filter(filter=filte).files):
+					indx_tmp = np.where(omtbl['now'] == inim)
+					omtbl['now'][indx_tmp] = results[i]
+					omtbl['defringe'][indx_tmp] = results[i]
+				del indx_tmp
+				for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
+	else:
+		print(f'{filte} : N/A')
 #%%
 #------------------------------------------------------------
 #	FIX (TMP)
@@ -335,27 +339,99 @@ if len(frgtbl) > 0:
 #	COSMIC-RAY REMOVAL
 #------------------------------------------------------------
 #	Seeing measurement w/ simple SE
-gain = ccdinfo['gain']
-pixscale = ccdinfo['pixelscale']
-fov = ccdinfo['fov']
 prefix = 'simple'
 path_conf = f'{path_config}/{prefix}.sex'
 path_param = f'{path_config}/{prefix}.param'
 path_nnw = f'{path_config}/{prefix}.nnw'
 path_conv = f'{path_config}/{prefix}.conv'
-
+#	Single
+'''
 inim = omtbl['now'][0]
-get_seeing(inim, gain, pixscale, fov, path_conf, path_param, path_conv, path_nnw, seeing_assume=3*u.arcsec, frac=0.68, n_min_src=5)
+seeing, peeing = get_seeing(
+	inim,
+	gain, 
+	pixscale, 
+	fov, 
+	path_conf, 
+	path_param, 
+	path_conv, 
+	path_nnw, 
+	seeing_assume=3*u.arcsec, 
+	frac=0.68, 
+	n_min_src=5
+	)
+'''
+if __name__ == '__main__':
+	#	Seeing measurement
+	print(f"""{'-'*60}\n#\tSEEING MEASUREMENT\n{'-'*60}""")
+	with multiprocessing.Pool(processes=ncore) as pool:
+		results = pool.starmap(
+			get_seeing,
+			zip(
+					omtbl['now'],
+					repeat(gain), 
+					repeat(pixscale), 
+					repeat(fov),
+					repeat(path_conf), 
+					repeat(path_param), 
+					repeat(path_conv), 
+					repeat(path_nnw), 
+					repeat(3*u.arcsec),
+					repeat(0.68),
+					repeat(5),
+			)
+		)
+		#	Cosmic-ray removal
+		print(f"""{'-'*60}\n#\tCOSMIC-RAY REMOVAL\n{'-'*60}""")
+		cleantype = 'medmask'
+		if __name__ == '__main__':
+			with multiprocessing.Pool(processes=ncore) as pool:
+				results = pool.starmap(
+					cosmic_ray_removal,
+					zip(
+							omtbl['now'],
+							add_prepix(omtbl['now'], 'cr'),
+							repeat(gain), 
+							repeat(rdnoise), 
+							[r[0] for r in results], 
+							repeat(cleantype)
+						)
+					)
 
-# outim = f"{path_data}/cr{omtbl['now'][0]}"
-# cosmic_ray_removal(omtbl['now'][0], outim, gain.value, rdnoise.value)
-
+for i, inim in enumerate(omtbl['now']):
+	tmpim = add_prepix(omtbl['now'], 'cr')[i]
+	indx_tmp = np.where(omtbl['now'] == inim)
+	omtbl['now'][indx_tmp] = tmpim
+	omtbl['cosmic_ray_removal'][indx_tmp] = tmpim
+del tmpim
+del indx_tmp
+for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 #------------------------------------------------------------
 #%%
 #	ASTROMETRY
 #------------------------------------------------------------
+print(f"""{'-'*60}\n#\tASTROMETRY\n{'-'*60}""")
 
-"""""
+inim = omtbl['now'][0]
+indx_obj = np.where(fits.getheader(inim)['OBJECT']==alltbl['obj'])
+
+outimlist = add_prepix(omtbl['now'], 'a')
+outim = outimlist[0]
+
+tra, tdec = alltbl['ra'][indx_obj].item(), alltbl['dec'][indx_obj].item()
+astrometry(
+	inim, 
+	outim, 
+	pixscale=pixscale, 
+	frac=0.10, 
+	ra=tra, 
+	dec=tdec, 
+	radius=fov, 
+	cpulimit=60
+	)
+#%%
+
+aaa="""""
 #============================================================
 #	MAIN BODY
 #============================================================
