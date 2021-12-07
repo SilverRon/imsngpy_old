@@ -8,6 +8,8 @@ import numpy as np
 from astropy.io import ascii
 from astroscrappy import detect_cosmics
 import time
+from astropy.coordinates import SkyCoord
+from astropy.table import Table
 #	Bottleneck function for faster process
 def bn_median(masked_array, axis=None):
     """
@@ -264,3 +266,46 @@ def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=
 		com = f'{com} --ra {ra} --dec {dec} --radius {radius}'
 	com = f'{com} --no-plots --new-fits {outim} --overwrite --use-sextractor --cpulimit {cpulimit}'
 	os.system(com)
+#------------------------------------------------------------
+def astrometry_analysis(inim, incor, outpng, outdat):
+	'''
+	inim = 'crdffdzobj.NGC4108.20210622.0158.fits'
+	incor = 'crdffdzobj.NGC4108.20210622.0158.corr'
+	outpng = 'crdffdzobj.NGC4108.20210622.0158.astrm.png'
+	outdat = 'crdffdzobj.NGC4108.20210622.0158.astrm.dat'
+	'''
+	data, hdr = fits.getdata(inim, header=True)
+	cortbl = Table(fits.getdata(incor))
+
+	#	INDEX astrometry.net (ref. catalog)
+	c_indx = SkyCoord(cortbl['index_ra'], cortbl['index_dec'], unit='deg')
+	#	Measured position
+	c_field = SkyCoord(cortbl['field_ra'], cortbl['field_dec'], unit='deg')
+
+	#	Results
+	ra_offset, dec_offset = c_field.spherical_offsets_to(c_indx)
+	sep = c_field.separation(c_indx)
+	ra_rms = np.sqrt(np.mean(ra_offset.arcsec**2))
+	dec_rms = np.sqrt(np.mean(dec_offset.arcsec**2))
+	sep_rms = np.sqrt(np.mean(sep.arcsec**2))
+
+	
+
+	#	Plot
+	#https://matplotlib.org/3.1.0/gallery/lines_bars_and_markers/scatter_hist.html
+	plt.close('all')
+	fig, ax = plt.subplots(figsize=(5, 5))
+	# plt.figure(figsize=(5, 5))
+	ax.plot(ra_offset.arcsec, dec_offset.arcsec, c='grey', alpha=0.75, ls='none', marker='o', mfc='none')
+	ax.errorbar(0, 0, xerr=ra_rms, yerr=dec_rms, capsize=5, c='tomato', label=f"RA offset:{round(ra_rms, 2)}\nDec offset:{round(dec_rms, 2)}\nsep:{round(sep_rms, 2)}")
+	if 'SEEING' in hdr.keys():
+		ax.add_patch(plt.Circle((0, 0), hdr['SEEING']/2, color='silver', alpha=0.25, label=f"SEEING:{round(hdr['SEEING'], 2)}"))
+	ax.set_xlim([-3.5, +3.5])
+	ax.set_ylim([-3.5, +3.5])
+	ax.set_xlabel('RA offset [arcsec]', fontsize=20)
+	ax.set_ylabel('Dec offset [arcsec]', fontsize=20)
+	ax.legend(fontsize=14, loc='lower right', framealpha=0.0)
+	ax.tick_params(axis='both', labelsize=14)
+	plt.grid('both', c='silver', ls='--', alpha=0.5)
+	plt.tight_layout()
+	plt.savefig(outpng, overwrite=True)

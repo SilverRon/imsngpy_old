@@ -419,7 +419,7 @@ outimlist = add_prepix(omtbl['now'], 'a')
 outim = outimlist[0]
 
 tra, tdec = alltbl['ra'][indx_obj].item(), alltbl['dec'][indx_obj].item()
-astrometry(
+com = astrometry(
 	inim, 
 	outim, 
 	pixscale=pixscale, 
@@ -428,6 +428,13 @@ astrometry(
 	dec=tdec, 
 	radius=fov, 
 	cpulimit=60
+	)
+
+astrometry_analysis(
+	inim=outim,
+	incor=f'{os.path.dirname(outim)}/{os.path.spitext(outim)[0]}.corr',
+	outpng=f'{os.path.dirname(outim)}/{os.path.spitext(outim)[0]}.astrm.png',
+	outdat=f'{os.path.dirname(outim)}/{os.path.spitext(outim)[0]}.astrm.dat'
 	)
 #%%
 
