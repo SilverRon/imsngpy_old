@@ -115,7 +115,7 @@ def get_seeing(inim, gain, pixscale, fov, path_conf, path_param, path_conv, path
 	return seeing, peeing
 #------------------------------------------------------------
 def fnamechange(inim):
-	with fits.open(fits_image_filename) as hdul:
+	with fits.open(inim) as hdul:
 		hdul.verify('fix')
 		hdr = hdul[0].header
 		obs = hdr['OBSERVAT']
@@ -127,4 +127,4 @@ def fnamechange(inim):
 		exptime = int(hdr['EXPTIME'])
 
 	newim = f'Calib-{obs}-{obj}-{datestr}-{timestr}-{filte}-{exptime}.fits'
-	return newtim
+	return newim

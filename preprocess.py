@@ -2,6 +2,7 @@ import os
 import ccdproc
 from astropy.nddata import CCDData
 import matplotlib.pyplot as plt
+plt.rc('font', family='serif')
 from astropy.io import fits
 from astropy import units as u
 import numpy as np
@@ -269,7 +270,7 @@ def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=
 #------------------------------------------------------------
 def astrometry_analysis(inim, incor, outpng, outdat):
 	'''
-	inim = 'crdffdzobj.NGC4108.20210622.0158.fits'
+	inim = 'acrdffdzobj.NGC4108.20210622.0158.fits'
 	incor = 'crdffdzobj.NGC4108.20210622.0158.corr'
 	outpng = 'crdffdzobj.NGC4108.20210622.0158.astrm.png'
 	outdat = 'crdffdzobj.NGC4108.20210622.0158.astrm.dat'
@@ -289,14 +290,38 @@ def astrometry_analysis(inim, incor, outpng, outdat):
 	dec_rms = np.sqrt(np.mean(dec_offset.arcsec**2))
 	sep_rms = np.sqrt(np.mean(sep.arcsec**2))
 
-	
+	fits.setval(inim, keyword='N_ASTRM', value=len(sep), comment='# of sources for astrometry')
+	fits.setval(inim, keyword='SEPRMS', value=round(sep_rms, 3), comment='Astrometry sepearation rms [arcsec]')
+	fits.setval(inim, keyword='RARMS', value=round(ra_rms, 3), comment='Astrometry RA offset rms [arcsec]')
+	fits.setval(inim, keyword='DERMS', value=round(dec_rms, 3), comment='Astrometry Dec offset rms [arcsec]')
 
 	#	Plot
 	#https://matplotlib.org/3.1.0/gallery/lines_bars_and_markers/scatter_hist.html
 	plt.close('all')
-	fig, ax = plt.subplots(figsize=(5, 5))
-	# plt.figure(figsize=(5, 5))
-	ax.plot(ra_offset.arcsec, dec_offset.arcsec, c='grey', alpha=0.75, ls='none', marker='o', mfc='none')
+	plt.figure(figsize=(8, 8))
+	# fig, ax = plt.subplots(figsize=(5, 5))
+	#	Size of Axes
+	left, width = 0.1, 0.65
+	bottom, height = 0.1, 0.65
+	# spacing = 0.005
+	spacing = 0.
+
+	rect_scatter = [left, bottom, width, height]
+	rect_histx = [left, bottom + height + spacing, width, 0.2]
+	rect_histy = [left + width + spacing, bottom, 0.2, height]
+
+	#	Main axe
+	ax = plt.axes(rect_scatter)
+	ax.tick_params(direction='in', top=True, right=True)
+	ax.tick_params(axis='both', labelsize=14)
+	#	Right and Left axes (ax1, ax2 for eact)
+	ax1 = plt.axes(rect_histx)
+	ax1.tick_params(direction='in', labelbottom=False)
+	ax2 = plt.axes(rect_histy)
+	ax2.tick_params(direction='in', labelleft=False)
+
+	#	Main plot
+	ax.plot(ra_offset.arcsec, dec_offset.arcsec, c='grey', alpha=0.75, ls='none', marker='o', mfc='none', label=f'{len(sep)} sources')
 	ax.errorbar(0, 0, xerr=ra_rms, yerr=dec_rms, capsize=5, c='tomato', label=f"RA offset:{round(ra_rms, 2)}\nDec offset:{round(dec_rms, 2)}\nsep:{round(sep_rms, 2)}")
 	if 'SEEING' in hdr.keys():
 		ax.add_patch(plt.Circle((0, 0), hdr['SEEING']/2, color='silver', alpha=0.25, label=f"SEEING:{round(hdr['SEEING'], 2)}"))
@@ -304,8 +329,29 @@ def astrometry_analysis(inim, incor, outpng, outdat):
 	ax.set_ylim([-3.5, +3.5])
 	ax.set_xlabel('RA offset [arcsec]', fontsize=20)
 	ax.set_ylabel('Dec offset [arcsec]', fontsize=20)
-	ax.legend(fontsize=14, loc='lower right', framealpha=0.0)
-	ax.tick_params(axis='both', labelsize=14)
-	plt.grid('both', c='silver', ls='--', alpha=0.5)
-	plt.tight_layout()
+	# ax.legend(fontsize=14, loc='lower right', framealpha=0.0, edgecolor='k')
+	ax.legend(fontsize=14, loc='lower right', facecolor='none', edgecolor='k')
+	ax.grid('both', c='silver', ls='--', alpha=0.5)
+
+	#	x, y ranges
+	binwidth = 0.25
+	lim = np.ceil(np.abs([ra_offset.arcsec, dec_offset.arcsec]).max() / binwidth) * binwidth
+	ax.set_xlim((-lim, lim))
+	ax.set_ylim((-lim, lim))
+
+	#	Sub plots
+	bins = np.arange(-lim, lim + binwidth, binwidth)
+	ax1.hist(ra_offset.arcsec, bins=bins, histtype='step', color='k')
+	ax1.axvline(x=np.median(ra_offset.arcsec), ls='--', color='k', alpha=0.5, label=f'Median:{round(np.median(ra_offset.arcsec), 2)}')
+	ax1.set_xlim(ax.get_xlim())
+	ax1.legend(fontsize=12, loc='upper right', framealpha=0.0)
+	ax1.grid('both', c='silver', ls='--', alpha=0.5)
+	ax1.set_title(os.path.basename(inim), fontsize=14)
+
+	ax2.hist(dec_offset.arcsec, bins=bins, histtype='step', orientation='horizontal', color='k')
+	ax2.axhline(y=np.median(dec_offset.arcsec), ls='--', color='k', alpha=0.5, label=f'{round(np.median(dec_offset.arcsec), 2)}')
+	ax2.set_ylim(ax.get_ylim())
+	ax2.legend(fontsize=12, loc='upper right', framealpha=0.0)
+	ax2.grid('both', c='silver', ls='--', alpha=0.5)
+
 	plt.savefig(outpng, overwrite=True)
