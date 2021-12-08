@@ -240,8 +240,8 @@ def cosmic_ray_removal(inim, outim, gain, rdnoise, seeing=3*u.arcsec, cleantype=
 	time_delta = time.time() - time_st
 	#------------------------------------------------------------
 	print(f"Remove {ncr} cosmic-ray pixels [{round(time_delta, 1)} sec]")
-	print(f'{os.path.basename(inim)} --> {os.path.basename(outim)}')
-	print(f'Mask : {os.path.basename(moutim)}')
+	print(f'\t{os.path.basename(inim)} --> {os.path.basename(outim)}')
+	print(f'\tMask : {os.path.basename(moutim)}')
 
 #------------------------------------------------------------
 def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=None, cpulimit=60):
@@ -266,6 +266,7 @@ def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=
 			radius = 1 # 1 deg as default
 		com = f'{com} --ra {ra} --dec {dec} --radius {radius}'
 	com = f'{com} --no-plots --new-fits {outim} --overwrite --use-sextractor --cpulimit {cpulimit}'
+	print(f'{os.path.basename(inim)} --> {os.path.basename(outim)}')
 	os.system(com)
 #------------------------------------------------------------
 def astrometry_analysis(inim, incor, outpng, outdat):

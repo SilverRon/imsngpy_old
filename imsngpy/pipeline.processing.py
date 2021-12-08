@@ -79,8 +79,8 @@ except:
 """
 #	Test setting
 # path_raw = '/data6/obsdata/LOAO/1994_1026'
-# path_raw = '/data6/obsdata/LOAO/1994_1003'
-path_raw = '/data6/obsdata/LOAO/1969_0119'
+path_raw = '/data6/obsdata/LOAO/1994_1003'
+# path_raw = '/data6/obsdata/LOAO/1969_0119'
 obs = 'LOAO'
 ncore = 8
 #------------------------------------------------------------
@@ -125,7 +125,6 @@ gain = ccdinfo['gain']
 rdnoise = ccdinfo['rdnoise']
 pixscale = ccdinfo['pixelscale']
 fov = ccdinfo['fov']
-
 
 if os.path.exists(path_data):
 	rmcom = f'rm -rf {path_data}'
@@ -189,8 +188,8 @@ for i, inim in enumerate(ic0.summary['file']):
 		del tail
 	print()
 ic1 = ImageFileCollection(path_data, keywords='*')
-#%%
 #------------------------------------------------------------
+#%%
 #	Object Master Table
 #
 #	Write the status of processing
@@ -198,6 +197,18 @@ ic1 = ImageFileCollection(path_data, keywords='*')
 #	Each dtype is set to 'strtype' variable
 strtype = 'U300'
 omtbl = Table()
+objtypelist = []
+for obj in ic1.filter(imagetyp='object').summary['object']:
+	if obj in alltbl['obj']:
+		objtypelist.append('IMSNG')
+	elif 'GRB' in obj:
+		objtypelist.append('GRB')
+	elif ('GECKO' in obj) | ('GCK' in obj):
+		objtypelist.append('GECKO')
+	else:
+		objtypelist.append('NON-IMSNG')
+
+omtbl['objtype'] = objtypelist
 omtbl['raw'] = [inim for inim in ic1.filter(imagetyp='object').files]
 omtbl['now'] = omtbl['raw']
 omtbl['preprocess'] = ''
@@ -250,6 +261,7 @@ else:
 mframe['flat'] = flatframe
 del flatframe
 #------------------------------------------------------------
+#%%
 #	OBJECT Correction
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tOBJECT CORRECTION ({len(ic1.filter(imagetyp='object').files)})\n{'-'*60}""")
@@ -332,8 +344,8 @@ for filte in set(fdzic.summary['filter']):
 				for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 	else:
 		print(f'{filte} : N/A')
-#%%
 #------------------------------------------------------------
+#%%
 #	FIX (TMP)
 #------------------------------------------------------------
 
@@ -438,29 +450,94 @@ if __name__ == '__main__':
 					tralist,
 					tdeclist,
 					repeat(fov),
-					repeat(60)
+					repeat(30)
 				)
 			)
 #	Check astrometry results
+print('Check astrometry results')
 c_all = SkyCoord(alltbl['ra'], alltbl['dec'], unit=(u.hourangle, u.deg))
 for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
+	hdr = fits.getheader(inim)
 	if os.path.exists(inim):
 		print(f'{i} {os.path.basename(inim)} : Astrometry Success')
-		hdr = fits.getheader(inim)
 		c = SkyCoord(hdr['CRVAL1'], hdr['CRVAL2'], unit=u.deg)
 		indx_tmp, sep, _ = c.match_to_catalog_sky(c_all)
-		if sep.item() < fov:
-			print(f"Correct {hdr['OBJECT']} position.")
-		del hdr
+		ra_offset, dec_offset = c.spherical_offsets_to(c_all)
+
+		#	Put pointing offset info.
+		fits.setval(inim, keyword='CNTSEP', value=round(sep[0].arcmin, 3), comment='Offset between pointing and galaxy position [arcmin]')
+		fits.setval(inim, keyword='CNTRAOFF', value=round(ra_offset.arcmin[indx_tmp], 3), comment='RA offset between pointing and galaxy position [arcmin]')
+		fits.setval(inim, keyword='CNTDEOFF', value=round(dec_offset.arcmin[indx_tmp], 3), comment='Dec offset between pointing and galaxy position [arcmin]')
 		
-	else:
+		print('\tCalculate accuracy')
+		astrometry_analysis(
+			inim=omtbl['now'][i], 
+			incor=f"{os.path.splitext(omtbl['now'][i])[0]}.corr",
+			outpng=f'{os.path.splitext(inim)[0]}.astrm.png',
+			outdat=f'{os.path.splitext(inim)[0]}.astrm.dat'
+			)
+		#	Update
+		# omtbl['now'][i] = inim
+	else:		
 		print(f'{i} {os.path.basename(inim)} : Astrometry Fail')
-
-
-astrometry_analysis(
-	inim=outim,
-	incor=f'{os.path.splitext(inim)[0]}.corr',
-	outpng=f'{os.path.splitext(outim)[0]}.astrm.png',
-	outdat=f'{os.path.splitext(outim)[0]}.astrm.dat'
-	)
-#%%
+		#	Suspect of wrong object name
+		if omtbl['objtype'][i] == 'IMSNG':
+			print('\tThis is IMSNG target. Start re-astronomy.')
+			#	Retry astrometry
+			astrometry(
+				inim=omtbl['now'][i], 
+				outim=add_prepix(omtbl['now'], 'a')[i], 
+				pixscale=pixscale, 
+				frac=frac, 
+				cpulimit=60
+				)
+			if os.path.exists(inim):
+				print('\tRe-astrometry SUCCESS!')
+				c = SkyCoord(hdr['CRVAL1'], hdr['CRVAL2'], unit=u.deg)
+				indx_tmp, sep, _ = c.match_to_catalog_sky(c_all)
+				if sep[0] < fov:
+					newobj = alltbl['obj'][indx_tmp]
+					print(f"\tCorrect OBJECT HEADER, {hdr['OBJECT']} --> {newobj} position.")
+					fits.setval(inim, keyword='OBJECT', value=newobj)
+					#	Put pointing offset info.
+					fits.setval(inim, keyword='CENTSEP', value=round(sep[0].arcmin, 3), comment='Offset between pointing and galaxy position')
+					ra_offset, dec_offset = c.spherical_offsets_to(c_all)
+					fits.setval(inim, keyword='CNTSEP', value=round(sep[0].arcmin, 3), comment='Offset between pointing and galaxy position [arcmin]')
+					fits.setval(inim, keyword='CNTRAOFF', value=round(ra_offset.arcmin, 3), comment='RA offset between pointing and galaxy position [arcmin]')
+					fits.setval(inim, keyword='CNTDEOFF', value=round(dec_offset.arcmin, 3), comment='Dec offset between pointing and galaxy position [arcmin]')
+		
+				astrometry_analysis(
+					inim=omtbl['now'][i], 
+					incor=f"{os.path.splitext(omtbl['now'][i])[0]}.corr",
+					outpng=f'{os.path.splitext(inim)[0]}.astrm.png',
+					outdat=f'{os.path.splitext(inim)[0]}.astrm.dat'
+					)
+				# omtbl['now'][i] = inim
+				pass
+			else:
+				print('\tRe-astrometry Fail...')
+				pass
+		else:
+			print('\tNo other actions')
+	del hdr
+#	
+for i, inim in enumerate(omtbl['now']):
+	tmpim = add_prepix(omtbl['now'], 'a')[i]
+	if os.path.exists(tmpim):
+		indx_tmp = np.where(omtbl['now'] == inim)
+		omtbl['now'][indx_tmp] = tmpim
+		omtbl['astrometry'][indx_tmp] = tmpim
+		del indx_tmp
+del tmpim
+for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
+#------------------------------------------------------------
+# %%
+#	File name change
+#------------------------------------------------------------
+print(f"""{'-'*60}\n#\tFILENAME CHANGE to IMSNG FORMAT\n{'-'*60}""")
+for i, inim in enumerate(omtbl['now']):
+	newim = f"{os.path.dirname(inim)}/{omtbl['final'][i]}"
+	com = f'cp {inim} {newim}'
+	os.system(com)
+	print(f'{i} {os.path.basename(inim)} --> {os.path.basename(newim)}')
+# %%
