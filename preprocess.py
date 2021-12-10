@@ -290,6 +290,11 @@ def astrometry_analysis(inim, incor, outpng, outdat):
 	ra_rms = np.sqrt(np.mean(ra_offset.arcsec**2))
 	dec_rms = np.sqrt(np.mean(dec_offset.arcsec**2))
 	sep_rms = np.sqrt(np.mean(sep.arcsec**2))
+	#	Results --> Table
+	cortbl['ra_offset'] = ra_offset.arcsec
+	cortbl['dec_offset'] = dec_offset.arcsec
+	cortbl['sep'] = sep.arcsec
+	cortbl.write(outdat, format='ascii.tab', overwrite=True)
 
 	fits.setval(inim, keyword='N_ASTRM', value=len(sep), comment='# of sources for astrometry')
 	fits.setval(inim, keyword='SEPRMS', value=round(sep_rms, 3), comment='Astrometry sepearation rms [arcsec]')
@@ -297,7 +302,6 @@ def astrometry_analysis(inim, incor, outpng, outdat):
 	fits.setval(inim, keyword='DERMS', value=round(dec_rms, 3), comment='Astrometry Dec offset rms [arcsec]')
 
 	#	Plot
-	#https://matplotlib.org/3.1.0/gallery/lines_bars_and_markers/scatter_hist.html
 	plt.close('all')
 	plt.figure(figsize=(8, 8))
 	# fig, ax = plt.subplots(figsize=(5, 5))

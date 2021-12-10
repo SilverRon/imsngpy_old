@@ -268,13 +268,19 @@ else:
 			'mjd',
 		]
 		)
-	#	NEED TO FIX IT!!!
-	#	PUT JD/MJD HEADER TO FORMER FILES?
-	ic_bias_avail = ic_bias.summary[ic_bias.summary['jd'].mask == False]
+	ic_bias_avail = ic_bias.summary[
+		(ic_bias.summary['jd'].mask == False) &
+		(ic_bias[ccdkey.lower()]==ccdval)
+		]
 	deltarr = np.array(np.abs(ic_bias_avail['jd']-t_med))
 	indx_bias = np.where(deltarr == np.min(deltarr))
 	biasim = f"{path_mframe}/{obs}/{mftype}/{ic_bias_avail['file'][indx_bias].item()}"
 	mframe['bias'] = CCDData(fits.getdata(biasim), unit="adu", meta=fits.getheader(biasim))
+	del ic_bias_avail
+	del mftype
+	del deltarr
+	del indx_bias
+	del biasim
 #------------------------------------------------------------
 #	DARK
 #------------------------------------------------------------
@@ -285,7 +291,43 @@ if len(darklist) > 0:
 	for exptime in darkexptime:
 		darkframe[f'{int(exptime)}'] = master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
 else:
-	print('borrow')
+	print('\tNo dark frame. Borrow from previous data.')
+	mftype = 'dark'
+	for exptime in set(ic1.filter(imagetyp='object').summary['exptime']):
+		print(f'EXPTIME {exptime} sec')
+		ic_dark = ImageFileCollection(
+			location=f'{path_mframe}/{obs}/{mftype}',
+			keywords=[
+				'instrume',
+				'date-obs',
+				'imagetyp',
+				'jd',
+				'mjd',
+				'exptime',
+			]
+			)
+		ic_dark_avail = ic_dark.summary[
+			(ic_dark.summary['jd'].mask == False) &
+			(ic_dark[ccdkey.lower()]==ccdval)
+			]
+		delexpt = np.array(np.abs(ic_dark_avail['exptime']-exptime))
+		indx_darkexpt = np.where(delexpt == np.min(delexpt))
+		ic_dark_darkexpt = ic_dark_avail[indx_darkexpt]
+		deltarr = np.array(np.abs(ic_dark_darkexpt['jd']-t_med))
+		indx_dark = np.where(deltarr==np.min(deltarr))
+		darkim = f"{path_mframe}/{obs}/{mftype}/{ic_bias_avail['file'][indx_dark].item()}"
+		if f'{exptime}' not in  darkframe.keys():
+			darkframe[f'{int(exptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
+		else:
+			print(f'No available dark frame for {exptime} sec')
+			pass
+		del ic_dark
+		del ic_dark_avail
+		del delexpt
+		del indx_darkexpt
+		del deltarr
+		del indx_dark
+		del darkim
 
 mframe['dark'] = darkframe
 del darkframe
@@ -302,7 +344,35 @@ if len(flatlist) > 0:
 		flatframe[filte] = master_flat(ic1.filter(imagetyp='flat', filter=filte).files, mbias=mframe['bias'], mdark=mdark, filte=filte)
 	del mdark
 else:
-	print('borrow')
+	print('\tNo Flat frame. Borrow from previous data.')
+	mftype = 'flat'
+	for filte in set(ic1.filter(imagetyp='object').summary['filter']):
+		ic_flat = ImageFileCollection(
+			location=f'{path_mframe}/{obs}/{mftype}',
+			keywords=[
+				'instrume',
+				'date-obs',
+				'imagetyp',
+				'jd',
+				'mjd',
+				'filter',
+			]
+			)
+		ic_flat_avail = ic_flat.summary[
+			(ic_flat.summary['jd'].mask == False) &
+			(ic_flat[ccdkey.lower()]==ccdval) &
+			(ic_flat['filter']==filte)
+			]
+		deltarr = np.array(np.abs(ic_flat_avail['jd']-t_med))
+		indx_flat = np.where(deltarr==np.min(deltarr))
+		flatim = f"{path_mframe}/{obs}/{mftype}/{ic_flat_avail['file'][indx_flat].item()}"
+		flatframe[filte] = CCDData(fits.getdata(flatim), unit="adu", meta=fits.getheader(flatim))
+		del ic_flat
+		del ic_flat_avail
+		del deltarr
+		del indx_flat
+		del flatim
+
 mframe['flat'] = flatframe
 del flatframe
 #------------------------------------------------------------
@@ -518,8 +588,10 @@ for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
 		astrometry_analysis(
 			inim=omtbl['now'][i], 
 			incor=f"{os.path.splitext(omtbl['now'][i])[0]}.corr",
-			outpng=f'{os.path.splitext(inim)[0]}.astrm.png',
-			outdat=f'{os.path.splitext(inim)[0]}.astrm.dat'
+			# outpng=f'{os.path.splitext(inim)[0]}.astrm.png',
+			# outdat=f'{os.path.splitext(inim)[0]}.astrm.dat'
+			outpng=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.png',
+			outdat=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.dat'
 			)
 		#	Update
 		# omtbl['now'][i] = inim
@@ -554,8 +626,8 @@ for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
 				astrometry_analysis(
 					inim=omtbl['now'][i], 
 					incor=f"{os.path.splitext(omtbl['now'][i])[0]}.corr",
-					outpng=f'{os.path.splitext(inim)[0]}.astrm.png',
-					outdat=f'{os.path.splitext(inim)[0]}.astrm.dat'
+					outpng=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.png',
+					outdat=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.dat'
 					)
 				# omtbl['now'][i] = inim
 				pass
@@ -581,8 +653,18 @@ for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tFILENAME CHANGE to IMSNG FORMAT\n{'-'*60}""")
 for i, inim in enumerate(omtbl['now']):
-	newim = f"{os.path.dirname(inim)}/{omtbl['final'][i]}"
+	newim = f"{omtbl['final'][i]}"
 	com = f'cp {inim} {newim}'
 	os.system(com)
 	print(f'{i} {os.path.basename(inim)} --> {os.path.basename(newim)}')
+
+ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*')
+#------------------------------------------------------------
 # %%
+#	IMAGE COMBINE
+#------------------------------------------------------------
+timestep = (1/24/60)*30 # [min]
+for obj in set(ic_cal.summary['object']):
+	for filte in ic_cal.filter(object=obj).summary['filter']:
+		
+
