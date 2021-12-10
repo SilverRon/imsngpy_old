@@ -590,8 +590,8 @@ for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
 			incor=f"{os.path.splitext(omtbl['now'][i])[0]}.corr",
 			# outpng=f'{os.path.splitext(inim)[0]}.astrm.png',
 			# outdat=f'{os.path.splitext(inim)[0]}.astrm.dat'
-			outpng=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.png',
-			outdat=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.dat'
+			outpng=f"{os.path.splitext(omtbl['final'][i])[0]}.astrm.png",
+			outdat=f"{os.path.splitext(omtbl['final'][i])[0]}.astrm.dat"
 			)
 		#	Update
 		# omtbl['now'][i] = inim
@@ -626,8 +626,8 @@ for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
 				astrometry_analysis(
 					inim=omtbl['now'][i], 
 					incor=f"{os.path.splitext(omtbl['now'][i])[0]}.corr",
-					outpng=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.png',
-					outdat=f'{os.path.splitext(omtbl['final'][i])[0]}.astrm.dat'
+					outpng=f"{os.path.splitext(omtbl['final'][i])[0]}.astrm.png",
+					outdat=f"{os.path.splitext(omtbl['final'][i])[0]}.astrm.dat"
 					)
 				# omtbl['now'][i] = inim
 				pass
@@ -663,7 +663,51 @@ ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*')
 # %%
 #	IMAGE COMBINE
 #------------------------------------------------------------
-tstep = (1/24/60)*30 # [min]
+print(f"""{'='*60}\n#\tIMAGE COMBINE\n{'='*60}""")
+
+def grouping_images(objtbl, tfrac):
+	delt = np.array(objtbl['jd'] - np.min(objtbl['jd']))*(24*60*60) # [days] --> [sec]
+	tsub = delt - (np.cumsum(objtbl['exptime']*tfrac) - objtbl['exptime'][0])
+	indx = np.where(tsub < 0)
+	indx_inv = np.where(tsub > 0)
+	return indx, indx_inv
+
+tfrac = 1.5 # Time fraction for grouping
+comimlist = []
+for obj in set(ic_cal.summary['object']):
+	for filte in set(ic_cal.filter(object=obj).summary['filter']):
+
+		ic_obj = ic_cal.filter(object=obj, filter=filte)
+		objtbl = ic_obj.summary
+
+		indx_com, indx_inv = grouping_images(objtbl, tfrac)
+		comimlist.append(objtbl[indx_com])
+
+		print(f"{len(objtbl['file'][indx_com])} images for {obj} in {filte}")
+		print('-'*60)
+		#	Numbering
+		n=0
+		for inim in objtbl['file'][indx_com]:
+			print(f'[{n}] {os.path.basename(inim)}')
+			n+=1
+		print('-'*60)
+
+		while len(indx_inv[0]):
+			objtbl = objtbl[indx_inv]
+			indx_com, indx_inv = grouping_images(objtbl, tfrac)
+			comimlist.append(objtbl[indx_com])
+			for inim in objtbl['file'][indx_com]:
+				print(f'[{n}] {os.path.basename(inim)}')
+				n+=1
+			print('-'*60)
+
+#------------------------------------------------------------
+# %%
+
+
+
+
+a='''tstep = (1/24/60)*30 # [min]
 tfrac = 1.5 # Time fraction for grouping
 for obj in set(ic_cal.summary['object']):
 	for filte in ic_cal.filter(object=obj).summary['filter']:
@@ -704,7 +748,5 @@ for obj in set(ic_cal.summary['object']):
 						del comimlist
 						del comindxlist
 						break
-					
-
-
-
+					'''
+# %%
