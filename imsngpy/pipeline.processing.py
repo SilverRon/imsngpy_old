@@ -79,8 +79,8 @@ except:
 """
 #	Test setting
 # path_raw = '/data6/obsdata/LOAO/1994_1026'
-path_raw = '/data6/obsdata/LOAO/1994_1003'
-# path_raw = '/data6/obsdata/LOAO/1969_0119'
+# path_raw = '/data6/obsdata/LOAO/1994_1003'
+path_raw = '/data6/obsdata/LOAO/1969_0119'
 obs = 'LOAO'
 ncore = 8
 #------------------------------------------------------------
@@ -92,7 +92,7 @@ path_gal = '/data6/IMSNG/IMSNGgalaxies'
 path_config = '/home/paek/imsngpy/config'
 path_log = '/home/paek/log'
 path_bkg = '/data6/bkgdata'
-path_table = '/home/paek/table'
+path_table = '/home/paek/imsngpy/table'
 #------------------------------------------------------------
 path_mframe = f'{path_factory}/master_frames'
 path_ref = f'{path_factory}/ref_frames/{obs.upper()}'
@@ -116,28 +116,49 @@ logtbl = ascii.read(f'{path_log}/{obs.lower()}.log')
 hdrtbl = ascii.read(f'{path_table}/changehdr.dat')
 alltbl = ascii.read(f'{path_table}/alltarget.dat')
 frgtbl = ascii.read(f'{path_table}/fringe.dat')
-ccdtbl = ascii.read(f'{path_table}/ccd.dat') 
-
+# ccdtbl = ascii.read(f'{path_table}/ccd.dat') 
+ccdtbl = ascii.read(f'{path_table}/ccd.tsv') 
+#------------------------------------------------------------
 path_data = f'{path_obs}/{os.path.basename(path_raw)}'
-
-ccdinfo = getccdinfo(obs, ccddat)
-gain = ccdinfo['gain']
-rdnoise = ccdinfo['rdnoise']
-pixscale = ccdinfo['pixelscale']
-fov = ccdinfo['fov']
-
+print(f"""{'-'*60}\n#\tCOPY DATA\n{'-'*60}""")
+#	Remove former data
 if os.path.exists(path_data):
 	rmcom = f'rm -rf {path_data}'
 	print(rmcom)
 	os.system(rmcom)
-
-print(f"""{'-'*60}\n#\tCOPY DATA\n{'-'*60}""")
+#	Copy to factory director
 cpcom = f'cp -r {path_raw} {path_data}'
 print(cpcom)
 os.system(cpcom)
-
+#%%
+#	Identify CCD
+print(f"""{'-'*60}\n#\tIDENTIFY CCD\n{'-'*60}""")
 ic0 = ImageFileCollection(path_data, keywords='*')
-# ic0.summary.write('{}/hdr.raw.dat'.format(path_data), format='ascii.tab', overwrite=True)
+for key, val, suf, ccd in zip((ccdtbl['key'][ccdtbl['obs']==obs]), (ccdtbl['value'][ccdtbl['obs']==obs]), (ccdtbl['suffix'][ccdtbl['obs']==obs]), (ccdtbl['ccd'][ccdtbl['obs']==obs])):
+	if (key.lower() in ic0.keywords) & (val == ic0.summary[key.lower()][0]):
+		ccdkey = key
+		ccdval = val
+		ccdtype = ccd
+		if suf.mask == True:
+			#	No suffix
+			suffix = ''
+			obsccd = f'{obs}'
+		else:
+			suffix = suf
+			obsccd = f'{obs}_{suffix}'
+		print(f'OBSERVAT : {obs}\nCCD KEYWORD : {key}\nCCD HEADER VALUE : {val}\nCCD NAME : {ccdtype}\nSUFFIX : {suffix}\n==> OBS_CCD : {obsccd}')
+#	CCD INFO
+indx_ccd = np.where(
+	(ccdtbl['obs']==obs) &
+	(ccdtbl['key']==ccdkey) &
+	(ccdtbl['value']==ccdval)
+)
+print(f"""{'-'*60}\n#\tCCD INFO\n{'-'*60}""")
+gain = ccdtbl['gain'][indx_ccd][0]*(u.electron/u.adu)
+rdnoise = ccdtbl['readnoise'][indx_ccd][0]*(u.electron)
+pixscale = ccdtbl['pixelscale'][indx_ccd][0]*(u.arcsec/u.pixel)
+fov = ccdtbl['foveff'][indx_ccd][0]*(u.arcmin)
+print(f"""GAIN : {gain}\nREAD NOISE : {rdnoise}\nPIXEL SCALE : {pixscale}\nEffective FoV : {fov}""")
 #------------------------------------------------------------
 #%%
 #	Header correction
@@ -147,6 +168,7 @@ print(comment)
 
 for i, inim in enumerate(ic0.summary['file']):
 	#	CCD Type
+	'''
 	if i == 0:
 		for key in set(ccdtbl['key']):
 			if key.lower() in ic0.summary.keys():
@@ -157,7 +179,10 @@ for i, inim in enumerate(ic0.summary['file']):
 			else:
 				ccdtype = 'UNKNOWN'
 	fits.setval(f'{path_data}/{inim}', 'CCDNAME', value=ccdtype)
+	fits.setval(f'{path_data}/{inim}', 'OBSERVAT', value=obs)'''
+	fits.setval(f'{path_data}/{inim}', 'CCDNAME', value=ccdtype)
 	fits.setval(f'{path_data}/{inim}', 'OBSERVAT', value=obs)
+	fits.setval(f'{path_data}/{inim}', 'OBSCCD', value=obsccd)
 	#	Correction with table
 	for key, val, nval in zip(hdrtbl['key'], hdrtbl['val'], hdrtbl['newval']):
 		if ic0.summary[key.lower()][i] == val:
@@ -188,6 +213,7 @@ for i, inim in enumerate(ic0.summary['file']):
 		del tail
 	print()
 ic1 = ImageFileCollection(path_data, keywords='*')
+t_med = np.median(ic1.filter(imagetyp='object').summary['jd'])	#	[JD]
 #------------------------------------------------------------
 #%%
 #	Object Master Table
@@ -195,6 +221,7 @@ ic1 = ImageFileCollection(path_data, keywords='*')
 #	Write the status of processing
 #	Pointing the original filename and updated filename
 #	Each dtype is set to 'strtype' variable
+#------------------------------------------------------------
 strtype = 'U300'
 omtbl = Table()
 objtypelist = []
@@ -215,7 +242,7 @@ omtbl['preprocess'] = ''
 omtbl['defringe'] = ''
 omtbl['cosmic_ray_removal'] = ''
 omtbl['astrometry'] = ''
-omtbl['final'] = [fnamechange(inim) for inim in ic1.filter(imagetyp='object').files]
+omtbl['final'] = [f'{path_data}/{fnamechange(inim)}' for inim in ic1.filter(imagetyp='object').files]
 for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 #============================================================
 #%%
@@ -225,11 +252,29 @@ mframe = dict()
 #------------------------------------------------------------
 #	BIAS
 #------------------------------------------------------------
-biaslist = ic1.filter(imagetyp='bias').files
-if len(biaslist) > 0:
+if 'bias' in ic1.summary['imagetyp']:
+	biaslist = ic1.filter(imagetyp='bias').files
 	mframe['bias'] = master_bias(biaslist)
 else:
-	print('borrow')
+	print('\tNo bias frame. Borrow from previous data.')
+	mftype = 'zero'
+	ic_bias = ImageFileCollection(
+		location=f'{path_mframe}/{obs}/{mftype}',
+		keywords=[
+			'instrume',
+			'date-obs',
+			'imagetyp',
+			'jd',
+			'mjd',
+		]
+		)
+	#	NEED TO FIX IT!!!
+	#	PUT JD/MJD HEADER TO FORMER FILES?
+	ic_bias_avail = ic_bias.summary[ic_bias.summary['jd'].mask == False]
+	deltarr = np.array(np.abs(ic_bias_avail['jd']-t_med))
+	indx_bias = np.where(deltarr == np.min(deltarr))
+	biasim = f"{path_mframe}/{obs}/{mftype}/{ic_bias_avail['file'][indx_bias].item()}"
+	mframe['bias'] = CCDData(fits.getdata(biasim), unit="adu", meta=fits.getheader(biasim))
 #------------------------------------------------------------
 #	DARK
 #------------------------------------------------------------
@@ -266,7 +311,7 @@ del flatframe
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tOBJECT CORRECTION ({len(ic1.filter(imagetyp='object').files)})\n{'-'*60}""")
 #	Function for multi-process
-def obj_process4mp(inim, newim, filte, exptime, darkexptime, ccdinfo, mframe,):
+def obj_process4mp(inim, newim, filte, exptime, darkexptime, rdnoise, mframe,):
 	'''
 	Routine for multiprocess
 	'''
@@ -281,7 +326,7 @@ def obj_process4mp(inim, newim, filte, exptime, darkexptime, ccdinfo, mframe,):
 		inim=inim,
 		# gain=ccdinfo['gain'],
 		gain=None,
-		readnoise=ccdinfo['rdnoise'],
+		readnoise=rdnoise,
 		mbias=mframe['bias'],
 		mdark=mframe['dark'][str(int(bestdarkexptime))],
 		mflat=mframe['flat'][filte],
@@ -301,7 +346,7 @@ if __name__ == '__main__':
 				ic1.filter(imagetyp='object').summary['filter'],
 				ic1.filter(imagetyp='object').summary['exptime'],
 				repeat(darkexptime),
-				repeat(ccdinfo),
+				repeat(rdnoise),
 				repeat(mframe),
 				)
 			)
@@ -454,7 +499,7 @@ if __name__ == '__main__':
 				)
 			)
 #	Check astrometry results
-print('Check astrometry results')
+print(f"""{'-'*60}\n#\tCHECK ASTROMETRY RESULTS\n{'-'*60}""")
 c_all = SkyCoord(alltbl['ra'], alltbl['dec'], unit=(u.hourangle, u.deg))
 for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
 	hdr = fits.getheader(inim)

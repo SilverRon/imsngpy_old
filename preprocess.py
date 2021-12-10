@@ -258,8 +258,8 @@ def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=
 	if (pixscale != None) & (type(pixscale) == float):
 		if frac == None:
 			frac = 0.10 # 10% interval of pixel scale as default
-		upscl = pixscale+pixscale*frac
-		loscl = pixscale-pixscale*frac
+		upscl = pixscale*(1+frac)
+		loscl = pixscale*(1-frac)
 		com = f'{com} --scale-unit arcsecperpix --scale-low {loscl} --scale-high {upscl} '
 	if (ra != None) & (dec != None):
 		if radius == None:
