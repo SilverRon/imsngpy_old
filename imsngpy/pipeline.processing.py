@@ -663,8 +663,48 @@ ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*')
 # %%
 #	IMAGE COMBINE
 #------------------------------------------------------------
-timestep = (1/24/60)*30 # [min]
+tstep = (1/24/60)*30 # [min]
+tfrac = 1.5 # Time fraction for grouping
 for obj in set(ic_cal.summary['object']):
 	for filte in ic_cal.filter(object=obj).summary['filter']:
-		
+		objtbl = ic_cal.filter(object=obj, filter=filte).summary
+		#	Sort by JD --> add this function!
+		for i, inim in enumerate(objtbl['image']):
+			if i==0:
+				#	Initializing
+				t0_exp = objtbl['jd'][i]
+				expt0 = objtbl['exptime'][i]
+				comimlist = [inim]
+				comindxlist = [i]
+			else:
+				t_exp = objtbl['jd'][i]
+				expt = objtbl['exptime'][i]
+				#	If same group
+				if t_exp<t0_exp+(expt0*tfrac)/(24*60*60):
+					comimlist.append(inim)
+					comindxlist = [i]
+					#
+					t0_exp = t_exp
+					expt0 = expt
+				#	If not --> image combine
+				else:
+					#	Image combine
+					if len(comimlist)>1:
+						print(f'{len(comimlist)} {obj} in {filte}')
+						for inim in comimlist: print(inim)
+					if i!=len(objtbl):
+						#	
+						comimlist = []
+						comindxlist = []
+					else:
+						del t0_exp
+						del expt0
+						del t_exp
+						del expt
+						del comimlist
+						del comindxlist
+						break
+					
+
+
 
