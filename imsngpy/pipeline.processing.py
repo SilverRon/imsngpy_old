@@ -80,7 +80,8 @@ except:
 #	Test setting
 # path_raw = '/data6/obsdata/LOAO/1994_1026'
 # path_raw = '/data6/obsdata/LOAO/1994_1003'
-path_raw = '/data6/obsdata/LOAO/1969_0119'
+# path_raw = '/data6/obsdata/LOAO/1969_0119'
+path_raw = '/data6/obsdata/LOAO/test'
 obs = 'LOAO'
 ncore = 8
 #------------------------------------------------------------
@@ -261,16 +262,16 @@ else:
 	ic_bias = ImageFileCollection(
 		location=f'{path_mframe}/{obs}/{mftype}',
 		keywords=[
-			'instrume',
-			'date-obs',
-			'imagetyp',
+			ccdkey.lower(),
+			# 'date-obs',
+			# 'imagetyp',
 			'jd',
-			'mjd',
+			# 'mjd',
 		]
 		)
 	ic_bias_avail = ic_bias.summary[
 		(ic_bias.summary['jd'].mask == False) &
-		(ic_bias[ccdkey.lower()]==ccdval)
+		(ic_bias.summary[ccdkey.lower()]==ccdval)
 		]
 	deltarr = np.array(np.abs(ic_bias_avail['jd']-t_med))
 	indx_bias = np.where(deltarr == np.min(deltarr))
@@ -285,8 +286,9 @@ else:
 #	DARK
 #------------------------------------------------------------
 darkframe = dict()
-darklist = ic1.filter(imagetyp='dark').files
-if len(darklist) > 0:
+# darklist = ic1.filter(imagetyp='dark').files
+# if len(darklist) > 0:
+if 'dark' in ic1.summary['imagetyp']:
 	darkexptime = np.array(list(set(ic1.filter(imagetyp='dark').summary['exptime'])))
 	for exptime in darkexptime:
 		darkframe[f'{int(exptime)}'] = master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
@@ -298,24 +300,24 @@ else:
 		ic_dark = ImageFileCollection(
 			location=f'{path_mframe}/{obs}/{mftype}',
 			keywords=[
-				'instrume',
-				'date-obs',
-				'imagetyp',
+				ccdkey.lower(),
+				# 'date-obs',
+				# 'imagetyp',
 				'jd',
-				'mjd',
+				# 'mjd',
 				'exptime',
 			]
 			)
 		ic_dark_avail = ic_dark.summary[
 			(ic_dark.summary['jd'].mask == False) &
-			(ic_dark[ccdkey.lower()]==ccdval)
+			(ic_dark.summary[ccdkey.lower()]==ccdval)
 			]
 		delexpt = np.array(np.abs(ic_dark_avail['exptime']-exptime))
 		indx_darkexpt = np.where(delexpt == np.min(delexpt))
 		ic_dark_darkexpt = ic_dark_avail[indx_darkexpt]
 		deltarr = np.array(np.abs(ic_dark_darkexpt['jd']-t_med))
 		indx_dark = np.where(deltarr==np.min(deltarr))
-		darkim = f"{path_mframe}/{obs}/{mftype}/{ic_bias_avail['file'][indx_dark].item()}"
+		darkim = f"{path_mframe}/{obs}/{mftype}/{ic_dark_avail['file'][indx_dark].item()}"
 		if f'{exptime}' not in  darkframe.keys():
 			darkframe[f'{int(exptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
 		else:
@@ -335,8 +337,9 @@ del darkframe
 #	FLAT
 #------------------------------------------------------------
 flatframe = dict()
-flatlist = ic1.filter(imagetyp='flat').files
-if len(flatlist) > 0:
+# flatlist = ic1.filter(imagetyp='flat').files
+if 'flat' in ic1.summary['imagetyp']:
+	#	Dark exptime should be corrected!
 	indx_mindark = np.where(darkexptime == np.min(darkexptime))
 	mdark = mframe['dark'][str(int(darkexptime[indx_mindark].item()))]
 	for filte in set(ic1.filter(imagetyp='flat',).summary['filter']):
@@ -350,18 +353,18 @@ else:
 		ic_flat = ImageFileCollection(
 			location=f'{path_mframe}/{obs}/{mftype}',
 			keywords=[
-				'instrume',
-				'date-obs',
+				ccdkey.lower(),
+				# 'date-obs',
 				'imagetyp',
 				'jd',
-				'mjd',
+				# 'mjd',
 				'filter',
 			]
 			)
 		ic_flat_avail = ic_flat.summary[
 			(ic_flat.summary['jd'].mask == False) &
-			(ic_flat[ccdkey.lower()]==ccdval) &
-			(ic_flat['filter']==filte)
+			(ic_flat.summary[ccdkey.lower()]==ccdval) &
+			(ic_flat.summary['filter']==filte)
 			]
 		deltarr = np.array(np.abs(ic_flat_avail['jd']-t_med))
 		indx_flat = np.where(deltarr==np.min(deltarr))
