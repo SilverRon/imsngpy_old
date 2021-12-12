@@ -15,13 +15,22 @@ def slack_bot(token, channel, text):
 	)
 	print(response)
 
-def add_prepix(imlist, prefix):
+def add_prefix(imlist, prefix):
 	'''
 	Add prefix on filename provided by list
 	e.g.
 	input : image list, prefix
 	'''
 	return [f'{os.path.dirname(inim)}/{prefix}{os.path.basename(inim)}' for inim in imlist]
+
+def add_suffix(imlist, suffix):
+	'''
+	Add suffix on filename provided by list
+	e.g.
+	input : image list, suffix
+	'''
+	return [f'{os.path.splitext(inim)[0]}.{suffix}{os.path.splitext(inim)[1]}' for inim in imlist]
+
 
 def get_seeing(inim, gain, pixscale, fov, path_conf, path_param, path_conv, path_nnw, seeing_assume=3, frac=0.68, n_min_src=5):
 	'''

@@ -186,7 +186,7 @@ def fringe_calc(dfim, dfdat, size=5):
 	return np.array(dfr_list)
 
 #------------------------------------------------------------
-def cosmic_ray_removal(inim, outim, gain, rdnoise, seeing=3*u.arcsec, cleantype='medmask'):
+def cosmic_ray_removal(inim, outim, maskim, gain, rdnoise, seeing=3*u.arcsec, cleantype='medmask'):
 	'''
 	inim 
 	obs = 'LOAO'
@@ -235,13 +235,12 @@ def cosmic_ray_removal(inim, outim, gain, rdnoise, seeing=3*u.arcsec, cleantype=
 
 	fits.writeto(outim, crdata, hdr, overwrite=True)
 	#	Mask array
-	moutim = ''.join([os.path.splitext(outim)[0], '.mask.fits'])
-	fits.writeto(moutim, mcrdata+0, hdr, overwrite=True)
+	fits.writeto(maskim, mcrdata+0, hdr, overwrite=True)
 	time_delta = time.time() - time_st
 	#------------------------------------------------------------
 	print(f"Remove {ncr} cosmic-ray pixels [{round(time_delta, 1)} sec]")
 	print(f'\t{os.path.basename(inim)} --> {os.path.basename(outim)}')
-	print(f'\tMask : {os.path.basename(moutim)}')
+	print(f'\tMask : {os.path.basename(maskim)}')
 
 #------------------------------------------------------------
 def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=None, cpulimit=60):

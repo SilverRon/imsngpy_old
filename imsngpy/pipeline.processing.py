@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 #============================================================
 #	IMSNG Pipeline
 #	=> Processing
@@ -30,15 +31,6 @@ from astropy.time import Time
 #	Multiprocess tools
 from itertools import repeat
 import multiprocessing
-# from __future__ import print_function, division, absolute_import
-# from timeit import default_timer as timer
-# from numba import jit
-# from pyraf import iraf
-# import matplotlib.pyplot as plt
-# plt.ioff()
-# from astropy.nddata import CCDData
-# from imsng import calib
-# from imsng import tool_tbd
 #------------------------------------------------------------
 #	My library
 # from tableutil import *
@@ -164,7 +156,7 @@ print(f"""GAIN : {gain}\nREAD NOISE : {rdnoise}\nPIXEL SCALE : {pixscale}\nEffec
 #%%
 #	Header correction
 #------------------------------------------------------------
-comment = f"""{'-'*60}\n#\tHEADER CORRECTION\n{'-'*60}"""
+comment = f"""{'='*60}\n#\tHEADER CORRECTION\n{'='*60}"""
 print(comment)
 
 for i, inim in enumerate(ic0.summary['file']):
@@ -249,15 +241,19 @@ for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 #%%
 #	Pre-processing
 #------------------------------------------------------------
+print(f"""{'='*60}\n#\tPREPARE FOR PRE-PROCESS\n{'='*60}""")
 mframe = dict()
 #------------------------------------------------------------
 #	BIAS
 #------------------------------------------------------------
+print(f"""{'-'*60}\n#\tBIAS\n{'-'*60}""")
+
 if 'bias' in ic1.summary['imagetyp']:
 	biaslist = ic1.filter(imagetyp='bias').files
+	print(f"""{len(biaslist)} bias frames --> master bias""")
 	mframe['bias'] = master_bias(biaslist)
 else:
-	print('\tNo bias frame. Borrow from previous data.')
+	print('No bias frame. Borrow from previous data.')
 	mftype = 'zero'
 	ic_bias = ImageFileCollection(
 		location=f'{path_mframe}/{obs}/{mftype}',
@@ -276,6 +272,7 @@ else:
 	deltarr = np.array(np.abs(ic_bias_avail['jd']-t_med))
 	indx_bias = np.where(deltarr == np.min(deltarr))
 	biasim = f"{path_mframe}/{obs}/{mftype}/{ic_bias_avail['file'][indx_bias].item()}"
+	print(f'Borrow {os.path.basename(biasim)}')
 	mframe['bias'] = CCDData(fits.getdata(biasim), unit="adu", meta=fits.getheader(biasim))
 	del ic_bias_avail
 	del mftype
@@ -283,8 +280,11 @@ else:
 	del indx_bias
 	del biasim
 #------------------------------------------------------------
+#%%
 #	DARK
 #------------------------------------------------------------
+print(f"""{'-'*60}\n#\tDARK\n{'-'*60}""")
+
 darkframe = dict()
 # darklist = ic1.filter(imagetyp='dark').files
 # if len(darklist) > 0:
@@ -293,10 +293,10 @@ if 'dark' in ic1.summary['imagetyp']:
 	for exptime in darkexptime:
 		darkframe[f'{int(exptime)}'] = master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
 else:
-	print('\tNo dark frame. Borrow from previous data.')
+	print('No dark frame. Borrow from previous data.')
 	mftype = 'dark'
+	darkexptime = []
 	for exptime in set(ic1.filter(imagetyp='object').summary['exptime']):
-		print(f'EXPTIME {exptime} sec')
 		ic_dark = ImageFileCollection(
 			location=f'{path_mframe}/{obs}/{mftype}',
 			keywords=[
@@ -312,21 +312,28 @@ else:
 			(ic_dark.summary['jd'].mask == False) &
 			(ic_dark.summary[ccdkey.lower()]==ccdval)
 			]
-		delexpt = np.array(np.abs(ic_dark_avail['exptime']-exptime))
-		indx_darkexpt = np.where(delexpt == np.min(delexpt))
-		ic_dark_darkexpt = ic_dark_avail[indx_darkexpt]
-		deltarr = np.array(np.abs(ic_dark_darkexpt['jd']-t_med))
+		#	Before
+		# delexpt = np.array(np.abs(ic_dark_avail['exptime']-exptime))
+		# indx_darkexpt = np.where(delexpt == np.min(delexpt))
+		# ic_dark_darkexpt = ic_dark_avail[indx_darkexpt]
+		# deltarr = np.array(np.abs(ic_dark_darkexpt['jd']-t_med))
+		# indx_darkexpt = np.where(delexpt == np.min(delexpt))
+		#	After
+		deltarr = np.array(np.abs(ic_dark_avail['jd']-t_med))
 		indx_dark = np.where(deltarr==np.min(deltarr))
 		darkim = f"{path_mframe}/{obs}/{mftype}/{ic_dark_avail['file'][indx_dark].item()}"
-		if f'{exptime}' not in  darkframe.keys():
+		print(f'Borrow {os.path.basename(darkim)} (EXPTIME {exptime} sec)')
+		if str(exptime) not in  darkframe.keys():
 			darkframe[f'{int(exptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
+			darkexptime.append(int(exptime))
 		else:
-			print(f'No available dark frame for {exptime} sec')
+			print(f'No available dark frame')
 			pass
+		darkexptime = np.array(darkexptime)
 		del ic_dark
 		del ic_dark_avail
-		del delexpt
-		del indx_darkexpt
+		# del delexpt
+		# del indx_darkexpt
 		del deltarr
 		del indx_dark
 		del darkim
@@ -334,20 +341,35 @@ else:
 mframe['dark'] = darkframe
 del darkframe
 #------------------------------------------------------------
+#%%
 #	FLAT
 #------------------------------------------------------------
+print(f"""{'-'*60}\n#\tFLAT\n{'-'*60}""")
 flatframe = dict()
-# flatlist = ic1.filter(imagetyp='flat').files
+#	Filter list
+if 'object' in ic1.summary['imagetyp']:
+	objfilterlist = list(ic1.filter(imagetyp='object').summary['filter'])
+	print(f'OBJECT FILTERS : {list(set(objfilterlist))}')
+else:
+	objfilterlist = []
+if 'flat' in ic1.summary['imagetyp']:
+	flatfilterlist = list(ic1.filter(imagetyp='flat').summary['filter'])
+	print(f'FLAT FILTERS : {list(set(flatfilterlist))}')
+else:
+	flatfilterlist = []
+filterlist = set(objfilterlist+flatfilterlist)
+print(f'==> ALL FILTERS : {list(set(filterlist))}')
+
 if 'flat' in ic1.summary['imagetyp']:
 	#	Dark exptime should be corrected!
 	indx_mindark = np.where(darkexptime == np.min(darkexptime))
 	mdark = mframe['dark'][str(int(darkexptime[indx_mindark].item()))]
-	for filte in set(ic1.filter(imagetyp='flat',).summary['filter']):
+	for filte in filterlist:
 		# print(filte)
 		flatframe[filte] = master_flat(ic1.filter(imagetyp='flat', filter=filte).files, mbias=mframe['bias'], mdark=mdark, filte=filte)
 	del mdark
 else:
-	print('\tNo Flat frame. Borrow from previous data.')
+	print('No Flat frame. Borrow from previous data.')
 	mftype = 'flat'
 	for filte in set(ic1.filter(imagetyp='object').summary['filter']):
 		ic_flat = ImageFileCollection(
@@ -369,6 +391,7 @@ else:
 		deltarr = np.array(np.abs(ic_flat_avail['jd']-t_med))
 		indx_flat = np.where(deltarr==np.min(deltarr))
 		flatim = f"{path_mframe}/{obs}/{mftype}/{ic_flat_avail['file'][indx_flat].item()}"
+		print(f'Borrow {os.path.basename(flatim)}')
 		flatframe[filte] = CCDData(fits.getdata(flatim), unit="adu", meta=fits.getheader(flatim))
 		del ic_flat
 		del ic_flat_avail
@@ -407,7 +430,7 @@ def obj_process4mp(inim, newim, filte, exptime, darkexptime, rdnoise, mframe,):
 	# nccd.write(f'{os.path.dirname(inim)}/fdz{os.path.basename(inim)}', overwrite=True)
 	nccd.write(newim, overwrite=True)
 #	Run with multi-process
-fdzimlist = add_prepix(ic1.filter(imagetyp='object').files, 'fdz')
+fdzimlist = add_prefix(ic1.filter(imagetyp='object').files, 'fdz')
 if __name__ == '__main__':
 	#	Fixed the number of cores (=4)
 	with multiprocessing.Pool(processes=4) as pool:
@@ -449,7 +472,7 @@ for filte in set(fdzic.summary['filter']):
 					zip(
 						fdzic.filter(filter=filte).files,
 						repeat(frgtbl_['image'][0]),
-						add_prepix(fdzic.filter(filter=filte).files, 'df'),
+						add_prefix(fdzic.filter(filter=filte).files, 'df'),
 						repeat(frgtbl_['table'][0]),
 						repeat(10)
 						)
@@ -514,6 +537,7 @@ if __name__ == '__main__':
 					repeat(5),
 			)
 		)
+		print('DONE')
 		#	Cosmic-ray removal
 		print(f"""{'-'*60}\n#\tCOSMIC-RAY REMOVAL\n{'-'*60}""")
 		cleantype = 'medmask'
@@ -523,7 +547,8 @@ if __name__ == '__main__':
 					cosmic_ray_removal,
 					zip(
 							omtbl['now'],
-							add_prepix(omtbl['now'], 'cr'),
+							add_prefix(omtbl['now'], 'cr'),
+							add_suffix(omtbl['final'], 'mask'),
 							repeat(gain), 
 							repeat(rdnoise), 
 							[r[0] for r in results], 
@@ -532,7 +557,7 @@ if __name__ == '__main__':
 					)
 
 for i, inim in enumerate(omtbl['now']):
-	tmpim = add_prepix(omtbl['now'], 'cr')[i]
+	tmpim = add_prefix(omtbl['now'], 'cr')[i]
 	indx_tmp = np.where(omtbl['now'] == inim)
 	omtbl['now'][indx_tmp] = tmpim
 	omtbl['cosmic_ray_removal'][indx_tmp] = tmpim
@@ -562,7 +587,7 @@ if __name__ == '__main__':
 			astrometry,
 			zip(
 					omtbl['now'],
-					add_prepix(omtbl['now'], 'a'),
+					add_prefix(omtbl['now'], 'a'),
 					repeat(pixscale), 
 					repeat(frac),
 					tralist,
@@ -574,7 +599,7 @@ if __name__ == '__main__':
 #	Check astrometry results
 print(f"""{'-'*60}\n#\tCHECK ASTROMETRY RESULTS\n{'-'*60}""")
 c_all = SkyCoord(alltbl['ra'], alltbl['dec'], unit=(u.hourangle, u.deg))
-for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
+for i, inim in enumerate(add_prefix(omtbl['now'], 'a')):
 	hdr = fits.getheader(inim)
 	if os.path.exists(inim):
 		print(f'{i} {os.path.basename(inim)} : Astrometry Success')
@@ -606,7 +631,7 @@ for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
 			#	Retry astrometry
 			astrometry(
 				inim=omtbl['now'][i], 
-				outim=add_prepix(omtbl['now'], 'a')[i], 
+				outim=add_prefix(omtbl['now'], 'a')[i], 
 				pixscale=pixscale, 
 				frac=frac, 
 				cpulimit=60
@@ -642,7 +667,7 @@ for i, inim in enumerate(add_prepix(omtbl['now'], 'a')):
 	del hdr
 #	
 for i, inim in enumerate(omtbl['now']):
-	tmpim = add_prepix(omtbl['now'], 'a')[i]
+	tmpim = add_prefix(omtbl['now'], 'a')[i]
 	if os.path.exists(tmpim):
 		indx_tmp = np.where(omtbl['now'] == inim)
 		omtbl['now'][indx_tmp] = tmpim
@@ -661,7 +686,7 @@ for i, inim in enumerate(omtbl['now']):
 	os.system(com)
 	print(f'{i} {os.path.basename(inim)} --> {os.path.basename(newim)}')
 
-ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*')
+ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*', glob_exclude='*mask*')
 #------------------------------------------------------------
 # %%
 #	IMAGE COMBINE
@@ -679,6 +704,8 @@ tfrac = 1.5 # Time fraction for grouping
 comimlist = []
 for obj in set(ic_cal.summary['object']):
 	for filte in set(ic_cal.filter(object=obj).summary['filter']):
+		print(f"{len(ic_cal.filter(object=obj).summary['filter'])} images for {obj} in {filte}")
+		print('-'*60)
 
 		ic_obj = ic_cal.filter(object=obj, filter=filte)
 		objtbl = ic_obj.summary
@@ -686,8 +713,6 @@ for obj in set(ic_cal.summary['object']):
 		indx_com, indx_inv = grouping_images(objtbl, tfrac)
 		comimlist.append(objtbl[indx_com])
 
-		print(f"{len(objtbl['file'][indx_com])} images for {obj} in {filte}")
-		print('-'*60)
 		#	Numbering
 		n=0
 		for inim in objtbl['file'][indx_com]:
@@ -706,50 +731,9 @@ for obj in set(ic_cal.summary['object']):
 
 #------------------------------------------------------------
 # %%
+#	Alignment
+#https://astroalign.readthedocs.io/en/latest/tutorial.html#a-simple-usage-example
 
 
-
-
-a='''tstep = (1/24/60)*30 # [min]
-tfrac = 1.5 # Time fraction for grouping
-for obj in set(ic_cal.summary['object']):
-	for filte in ic_cal.filter(object=obj).summary['filter']:
-		objtbl = ic_cal.filter(object=obj, filter=filte).summary
-		#	Sort by JD --> add this function!
-		for i, inim in enumerate(objtbl['image']):
-			if i==0:
-				#	Initializing
-				t0_exp = objtbl['jd'][i]
-				expt0 = objtbl['exptime'][i]
-				comimlist = [inim]
-				comindxlist = [i]
-			else:
-				t_exp = objtbl['jd'][i]
-				expt = objtbl['exptime'][i]
-				#	If same group
-				if t_exp<t0_exp+(expt0*tfrac)/(24*60*60):
-					comimlist.append(inim)
-					comindxlist = [i]
-					#
-					t0_exp = t_exp
-					expt0 = expt
-				#	If not --> image combine
-				else:
-					#	Image combine
-					if len(comimlist)>1:
-						print(f'{len(comimlist)} {obj} in {filte}')
-						for inim in comimlist: print(inim)
-					if i!=len(objtbl):
-						#	
-						comimlist = []
-						comindxlist = []
-					else:
-						del t0_exp
-						del expt0
-						del t_exp
-						del expt
-						del comimlist
-						del comindxlist
-						break
-					'''
 # %%
+#	Image combine
