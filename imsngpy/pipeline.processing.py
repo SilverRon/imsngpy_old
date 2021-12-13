@@ -733,7 +733,35 @@ for obj in set(ic_cal.summary['object']):
 # %%
 #	Alignment
 #https://astroalign.readthedocs.io/en/latest/tutorial.html#a-simple-usage-example
+import astroalign as aa
 
+# for imtbl in comimlist:
+i = 0
+imtbl = comimlist[i]
+indx_ref = np.where(imtbl['seeing']==np.min(imtbl['seeing']))
+#	Target image
+tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
+from astropy.nddata import CCDData
+tdata = CCDData(fits.getdata(tgtim), unit='adu')
+#	Source image
+srcimlist = list(imtbl['file'][imtbl['file']!=tgtim])
+sdata = CCDData(fits.getdata(srcim), unit='adu')
+
+j=0
+aimlist = []
+for srcim in srcimlist:
+# srcim = srcimlist[j]
+	#	Registered image
+	rdata, footprint = aa.register(sdata, tdata,)
+	aimlist.append(srcim)
+
+'''
+transf, (source_list, target_list) = aa.find_transform(sdata, tdata)
+aligned_image, footprint = aa.apply_transform(transf, source=sdata, target=tdata)
+
+from PIL import Image
+rdata = Image.fromarray(rdata.astype("unit8"))
+'''
 
 # %%
 #	Image combine
