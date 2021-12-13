@@ -11,6 +11,9 @@ from astroscrappy import detect_cosmics
 import time
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
+
+def scaling_func(arr): return 1/np.ma.median(arr)
+
 #	Bottleneck function for faster process
 def bn_median(masked_array, axis=None):
     """
@@ -80,24 +83,10 @@ def master_flat(imlist, mbias, mdark, filte=''):
 	comment = f"""{'-'*60}\n#\t{filte} FLAT MASTER FRAME (<--{len(imlist)} frames)\n{'-'*60}"""
 	print(comment)
 
-	def subtract_bias_dark(inim, mbias, mdark):
-		flat = CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim))
-		bflat = ccdproc.subtract_bias(
-			flat,
-			mbias,
-			)
-		dbflat = ccdproc.subtract_dark(
-			ccd=bflat,
-			master=mdark,
-			exposure_time='EXPTIME',
-			exposure_unit=u.second,
-			scale=True,
-		)
-		return dbflat
+
 	#	Combine
 	combiner = ccdproc.Combiner([subtract_bias_dark(inim, mbias, mdark) for inim in imlist])
 	combiner.minmax_clipping()
-	def scaling_func(arr): return 1/np.ma.median(arr)
 	combiner.scaling = scaling_func
 	nmflat = combiner.median_combine(median_func=bn_median)	
 	#	Header
@@ -112,6 +101,21 @@ def master_flat(imlist, mbias, mdark, filte=''):
 	nmflat.header['FILENAME'] = filename
 	nmflat.write(f'{os.path.dirname(inim)}/{filename}', overwrite=True)
 	return nmflat
+#------------------------------------------------------------
+def subtract_bias_dark(inim, mbias, mdark):
+	flat = CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim))
+	bflat = ccdproc.subtract_bias(
+		flat,
+		mbias,
+		)
+	dbflat = ccdproc.subtract_dark(
+		ccd=bflat,
+		master=mdark,
+		exposure_time='EXPTIME',
+		exposure_unit=u.second,
+		scale=True,
+	)
+	return dbflat
 #------------------------------------------------------------
 def obj_process(inim, gain, readnoise, mbias, mdark, mflat,):
 	'''

@@ -739,22 +739,29 @@ import astroalign as aa
 i = 0
 imtbl = comimlist[i]
 indx_ref = np.where(imtbl['seeing']==np.min(imtbl['seeing']))
+
 #	Target image
 tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
 from astropy.nddata import CCDData
-tdata = CCDData(fits.getdata(tgtim), unit='adu')
+tdata = CCDData(fits.getdata(tgtim), unit='adu', meta=fits.getheader(tgtim))
+
 #	Source image
 srcimlist = list(imtbl['file'][imtbl['file']!=tgtim])
-sdata = CCDData(fits.getdata(srcim), unit='adu')
 
 j=0
-aimlist = []
+aligned_imlist = [tdata]
 for srcim in srcimlist:
 # srcim = srcimlist[j]
-	#	Registered image
-	rdata, footprint = aa.register(sdata, tdata,)
-	aimlist.append(srcim)
+	sdata = CCDData(fits.getdata(srcim), unit='adu',)
 
+	#	Registered image
+	rdata, footprint = aa.register(
+		sdata,
+		tdata,
+		fill_value=np.NaN,
+		)
+	aligned_imlist.append(CCDData(rdata, unit='adu', meta=fits.getheader(srcim)))
+	
 '''
 transf, (source_list, target_list) = aa.find_transform(sdata, tdata)
 aligned_image, footprint = aa.apply_transform(transf, source=sdata, target=tdata)
