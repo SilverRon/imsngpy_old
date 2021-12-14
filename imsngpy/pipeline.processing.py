@@ -9,6 +9,10 @@
 #------------------------------------------------------------
 import os
 import glob
+import numpy as np
+import warnings
+warnings.filterwarnings(action='ignore')
+import time
 import sys
 sys.path.append('/home/paek/imsngpy')
 #	IMSNGpy modules
@@ -16,18 +20,18 @@ from tableutil import getccdinfo
 from preprocess import *
 from misc import *
 from phot import *
-import warnings
-warnings.filterwarnings(action='ignore')
-import time
+from util import *
+#
 start_localtime = time.strftime('%Y-%m-%d %H:%M:%S (%Z)', time.localtime())
+#	Astropy
 from astropy.io import ascii
 from astropy.io import fits
-import numpy as np
 from astropy.table import Table
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from ccdproc import ImageFileCollection
 from astropy.time import Time
+from astropy.nddata import CCDData
 #	Multiprocess tools
 from itertools import repeat
 import multiprocessing
@@ -125,6 +129,9 @@ print(cpcom)
 os.system(cpcom)
 #%%
 #	Identify CCD
+ic0 = ImageFileCollection(path_data, keywords='*')
+
+'''
 print(f"""{'-'*60}\n#\tIDENTIFY CCD\n{'-'*60}""")
 ic0 = ImageFileCollection(path_data, keywords='*')
 for key, val, suf, ccd in zip((ccdtbl['key'][ccdtbl['obs']==obs]), (ccdtbl['value'][ccdtbl['obs']==obs]), (ccdtbl['suffix'][ccdtbl['obs']==obs]), (ccdtbl['ccd'][ccdtbl['obs']==obs])):
@@ -140,12 +147,14 @@ for key, val, suf, ccd in zip((ccdtbl['key'][ccdtbl['obs']==obs]), (ccdtbl['valu
 			suffix = suf
 			obsccd = f'{obs}_{suffix}'
 		print(f'OBSERVAT : {obs}\nCCD KEYWORD : {key}\nCCD HEADER VALUE : {val}\nCCD NAME : {ccdtype}\nSUFFIX : {suffix}\n==> OBS_CCD : {obsccd}')
+'''
 #	CCD INFO
 indx_ccd = np.where(
 	(ccdtbl['obs']==obs) &
 	(ccdtbl['key']==ccdkey) &
 	(ccdtbl['value']==ccdval)
 )
+ccdkey, ccdval, ccdtype, obsccd = identify_ccdinfo(ic0, obs, ccdtbl)
 print(f"""{'-'*60}\n#\tCCD INFO\n{'-'*60}""")
 gain = ccdtbl['gain'][indx_ccd][0]*(u.electron/u.adu)
 rdnoise = ccdtbl['readnoise'][indx_ccd][0]*(u.electron)
@@ -160,6 +169,7 @@ comment = f"""{'='*60}\n#\tHEADER CORRECTION\n{'='*60}"""
 print(comment)
 
 for i, inim in enumerate(ic0.summary['file']):
+	image = f'{path_data}/{inim}'
 	#	CCD Type
 	'''
 	if i == 0:
@@ -171,26 +181,27 @@ for i, inim in enumerate(ic0.summary['file']):
 				]['ccd'].item()
 			else:
 				ccdtype = 'UNKNOWN'
-	fits.setval(f'{path_data}/{inim}', 'CCDNAME', value=ccdtype)
-	fits.setval(f'{path_data}/{inim}', 'OBSERVAT', value=obs)'''
-	fits.setval(f'{path_data}/{inim}', 'CCDNAME', value=ccdtype)
-	fits.setval(f'{path_data}/{inim}', 'OBSERVAT', value=obs)
-	fits.setval(f'{path_data}/{inim}', 'OBSCCD', value=obsccd)
+	fits.setval(image, 'CCDNAME', value=ccdtype)
+	fits.setval(image, 'OBSERVAT', value=obs)'''
+	fits.setval(image, 'PATHPRC', value=path_data, comment='Path where data is processed')
+	fits.setval(image, 'CCDNAME', value=ccdtype)
+	fits.setval(image, 'OBSERVAT', value=obs)
+	fits.setval(image, 'OBSCCD', value=obsccd)
 	#	Correction with table
 	for key, val, nval in zip(hdrtbl['key'], hdrtbl['val'], hdrtbl['newval']):
 		if ic0.summary[key.lower()][i] == val:
 			print(f'{inim} - {key} : {val} --> {nval}')
-			fits.setval(f'{path_data}/{inim}', key, value=nval)
+			fits.setval(image, key, value=nval)
 	#	DATE-OBS, JD, MJD
 	if 'T' not in ic0.summary['date-obs'][i]:
 		dateobs = f"{ic0.summary['date-obs']}'T'{ic0.summary['time-obs']}"
-		fits.setval(f'{path_data}/{inim}', 'date-obs', value=dateobs)
+		fits.setval(image, 'date-obs', value=dateobs)
 		del dateobs
 	else:
 		pass
 	t = Time(ic0.summary['date-obs'][i], format='isot')
-	fits.setval(f'{path_data}/{inim}', 'JD', value=t.jd)
-	fits.setval(f'{path_data}/{inim}', 'MJD', value=t.mjd)
+	fits.setval(image, 'JD', value=t.jd)
+	fits.setval(image, 'MJD', value=t.mjd)
 	del t
 	#	OBJECT name
 	if 'ngc' in ic0.summary['object'][i]:
@@ -200,7 +211,7 @@ for i, inim in enumerate(ic0.summary['file']):
 			tail = objectname[3:]
 			tail = f'0{tail}'
 			objectname = f'{head}{tail}'
-		fits.setval(f'{path_data}/{inim}', 'OBJECT', value=objectname.upper())
+		fits.setval(image, 'OBJECT', value=objectname.upper())
 		del objectname
 		del head
 		del tail
@@ -322,10 +333,11 @@ else:
 		deltarr = np.array(np.abs(ic_dark_avail['jd']-t_med))
 		indx_dark = np.where(deltarr==np.min(deltarr))
 		darkim = f"{path_mframe}/{obs}/{mftype}/{ic_dark_avail['file'][indx_dark].item()}"
-		print(f'Borrow {os.path.basename(darkim)} (EXPTIME {exptime} sec)')
-		if str(exptime) not in  darkframe.keys():
-			darkframe[f'{int(exptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
-			darkexptime.append(int(exptime))
+		nexptime = ic_dark_avail['exptime'][indx_dark].item()
+		print(f'Borrow {os.path.basename(darkim)} (EXPTIME {nexptime} sec)')
+		if str(nexptime) not in  darkframe.keys():
+			darkframe[f'{int(nexptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
+			darkexptime.append(int(nexptime))
 		else:
 			print(f'No available dark frame')
 			pass
@@ -602,7 +614,7 @@ c_all = SkyCoord(alltbl['ra'], alltbl['dec'], unit=(u.hourangle, u.deg))
 for i, inim in enumerate(add_prefix(omtbl['now'], 'a')):
 	hdr = fits.getheader(inim)
 	if os.path.exists(inim):
-		print(f'{i} {os.path.basename(inim)} : Astrometry Success')
+		print(f'[{i}] {os.path.basename(inim)} : Astrometry Success')
 		c = SkyCoord(hdr['CRVAL1'], hdr['CRVAL2'], unit=u.deg)
 		indx_tmp, sep, _ = c.match_to_catalog_sky(c_all)
 		ra_offset, dec_offset = c.spherical_offsets_to(c_all)
@@ -685,6 +697,7 @@ for i, inim in enumerate(omtbl['now']):
 	com = f'cp {inim} {newim}'
 	os.system(com)
 	print(f'{i} {os.path.basename(inim)} --> {os.path.basename(newim)}')
+	fits.setval(newim, keyword='IMNAME', value=os.path.basename(newim), comment='Formatted file name by gpPy process')
 
 ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*', glob_exclude='*mask*')
 #------------------------------------------------------------
@@ -693,13 +706,14 @@ ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*', glob_exclude=
 #------------------------------------------------------------
 print(f"""{'='*60}\n#\tIMAGE COMBINE\n{'='*60}""")
 
-def grouping_images(objtbl, tfrac):
+def group_images(objtbl, tfrac):
 	delt = np.array(objtbl['jd'] - np.min(objtbl['jd']))*(24*60*60) # [days] --> [sec]
 	tsub = delt - (np.cumsum(objtbl['exptime']*tfrac) - objtbl['exptime'][0])
 	indx = np.where(tsub < 0)
 	indx_inv = np.where(tsub > 0)
 	return indx, indx_inv
 
+print(f"""{'-'*60}\n#\tGROUP IMAGES\n{'-'*60}""")
 tfrac = 1.5 # Time fraction for grouping
 comimlist = []
 for obj in set(ic_cal.summary['object']):
@@ -710,7 +724,7 @@ for obj in set(ic_cal.summary['object']):
 		ic_obj = ic_cal.filter(object=obj, filter=filte)
 		objtbl = ic_obj.summary
 
-		indx_com, indx_inv = grouping_images(objtbl, tfrac)
+		indx_com, indx_inv = group_images(objtbl, tfrac)
 		comimlist.append(objtbl[indx_com])
 
 		#	Numbering
@@ -722,7 +736,7 @@ for obj in set(ic_cal.summary['object']):
 
 		while len(indx_inv[0]):
 			objtbl = objtbl[indx_inv]
-			indx_com, indx_inv = grouping_images(objtbl, tfrac)
+			indx_com, indx_inv = group_images(objtbl, tfrac)
 			comimlist.append(objtbl[indx_com])
 			for inim in objtbl['file'][indx_com]:
 				print(f'[{n}] {os.path.basename(inim)}')
@@ -731,44 +745,17 @@ for obj in set(ic_cal.summary['object']):
 
 #------------------------------------------------------------
 # %%
-#	Alignment
-#https://astroalign.readthedocs.io/en/latest/tutorial.html#a-simple-usage-example
-import astroalign as aa
+print(f"""{'-'*60}\n#\tALIGN IMAGES AND COMBINE\n{'-'*60}""")
+for i in range(len(comimlist)):
+	#	Alignment
+	##	Target image
+	imtbl = comimlist[i]
+	indx_ref = np.where(imtbl['seeing']==np.min(imtbl['seeing']))
+	tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
+	##	Source image
+	srcimlist = list(imtbl['file'][imtbl['file']!=tgtim])
+	#	Combine
+	aligned_imlist = [CCDData(fits.getdata(tgtim), unit='adu', header=fits.getheader(tgtim))]
+	for srcim in srcimlist: aligned_imlist.append(align_astroalign(srcim, tgtim,))
+	imcombine_ccddata(aligned_imlist, imlist=None)
 
-# for imtbl in comimlist:
-i = 0
-imtbl = comimlist[i]
-indx_ref = np.where(imtbl['seeing']==np.min(imtbl['seeing']))
-
-#	Target image
-tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
-from astropy.nddata import CCDData
-tdata = CCDData(fits.getdata(tgtim), unit='adu', meta=fits.getheader(tgtim))
-
-#	Source image
-srcimlist = list(imtbl['file'][imtbl['file']!=tgtim])
-
-j=0
-aligned_imlist = [tdata]
-for srcim in srcimlist:
-# srcim = srcimlist[j]
-	sdata = CCDData(fits.getdata(srcim), unit='adu',)
-
-	#	Registered image
-	rdata, footprint = aa.register(
-		sdata,
-		tdata,
-		fill_value=np.NaN,
-		)
-	aligned_imlist.append(CCDData(rdata, unit='adu', meta=fits.getheader(srcim)))
-	
-'''
-transf, (source_list, target_list) = aa.find_transform(sdata, tdata)
-aligned_image, footprint = aa.apply_transform(transf, source=sdata, target=tdata)
-
-from PIL import Image
-rdata = Image.fromarray(rdata.astype("unit8"))
-'''
-
-# %%
-#	Image combine

@@ -137,3 +137,27 @@ def fnamechange(inim):
 
 	newim = f'Calib-{obs}-{obj}-{datestr}-{timestr}-{filte}-{exptime}.fits'
 	return newim
+#------------------------------------------------------------
+def identify_ccdinfo(ic0, obs, ccdtbl):
+	#	Identify CCD
+	print(f"""{'-'*60}\n#\tIDENTIFY CCD\n{'-'*60}""")
+	for key, val, suf, ccd in zip((ccdtbl['key'][ccdtbl['obs']==obs]), (ccdtbl['value'][ccdtbl['obs']==obs]), (ccdtbl['suffix'][ccdtbl['obs']==obs]), (ccdtbl['ccd'][ccdtbl['obs']==obs])):
+		if (key.lower() in ic0.keywords) & (val == ic0.summary[key.lower()][0]):
+			ccdkey = key
+			ccdval = val
+			ccdtype = ccd
+			if suf.mask == True:
+				#	No suffix
+				suffix = ''
+				obsccd = f'{obs}'
+			else:
+				suffix = suf
+				obsccd = f'{obs}_{suffix}'
+			print(f'OBSERVAT : {obs}\nCCD KEYWORD : {key}\nCCD HEADER VALUE : {val}\nCCD NAME : {ccdtype}\nSUFFIX : {suffix}\n==> OBS_CCD : {obsccd}')
+	#	CCD INFO
+	indx_ccd = np.where(
+		(ccdtbl['obs']==obs) &
+		(ccdtbl['key']==ccdkey) &
+		(ccdtbl['value']==ccdval)
+	)
+	return ccdkey, ccdval, ccdtype, obsccd

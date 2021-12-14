@@ -1,8 +1,12 @@
 import os
-
-
+from astropy.time import Time
+from astropy.io import fits
+import numpy as np
+import astroalign as aa
+from astropy.nddata import CCDData
+#------------------------------------------------------------
 def scaling_func(arr): return 1/np.ma.median(arr)
-
+#------------------------------------------------------------
 def bn_median(masked_array, axis=None):
     """
     Perform fast median on masked array
@@ -22,46 +26,71 @@ def bn_median(masked_array, axis=None):
     med = bn.nanmedian(data, axis=axis)
     # construct a masked array result, setting the mask from any NaN entries
     return np.ma.array(med, mask=np.isnan(med))
+#------------------------------------------------------------
+def align_astroalign(srcim, tgtim,):
+	print(f'Align {os.path.basename(srcim)} to {os.path.basename(tgtim)}')
+	tdata, thdr = fits.getdata(tgtim, header=True)
+	tzero = np.median(tdata[~np.isnan(tdata)].flatten())
 
+	#	Registered image
+	rdata, footprint = aa.register(
+		fits.getdata(srcim),
+		fits.getdata(tgtim),
+		fill_value=np.NaN,
+		)
+	rzero = np.median(rdata[~np.isnan(rdata)].flatten())
+	zero_offset = tzero-rzero
+	print(f'\t--> (Aligned image) = {os.path.basename(srcim)} - ({round(zero_offset, 3)})')
+	rdata = rdata+zero_offset
+	return CCDData(rdata, unit='adu', header=fits.getheader(srcim))
 #------------------------------------------------------------
 from astropy.io import fits
 from astropy.nddata import CCDData
 import ccdproc
 
-def imcombine_ccddata(ccddatalist):
+def imcombine_ccddata(aligned_imlist, imlist=None):
 	"""
 	"""
-	comment = f"""{'-'*60}\n#\t{filte} FLAT MASTER FRAME (<--{len(imlist)} frames)\n{'-'*60}"""
+	comment = f"""{'-'*60}\n#\tCOMBINE {len(aligned_imlist)} OBJECT FRAMES\n{'-'*60}"""
 	print(comment)
+	#	Info. for combined image
+	if imlist==None:
+		imlist = [f"{indata.header['PATHPRC']}/{indata.header['IMNAME']}" for indata in aligned_imlist]
+	jd = calc_jd_median(imlist)
+	comim = combine_name(imlist)
+	#	Print
+	for n, inim in enumerate(imlist):
+		print(f'[{n}] {os.path.basename(inim)}')
+	print(f'==> {os.path.basename(comim)}')
 
 	#	Combine
-	combiner = ccdproc.Combiner(ccddatalist)
-	# combiner.minmax_clipping()
-	# combiner.scaling = scaling_func
-	com = combiner.median_combine(median_func=bn_median)	
+	combiner = ccdproc.Combiner(aligned_imlist)
+	comdata = combiner.median_combine(median_func=bn_median)	
+
+
 	#	Header
-	nmflat.header = fits.getheader(imlist[0])
-	nmflat.header['NCOMBINE'] = len(imlist)
-	nmflat.header['SUBBIAS'] = mbias.header['FILENAME']
-	nmflat.header['SUBDARK'] = mdark.header['FILENAME']
-	for n, inim in enumerate(imlist): nmflat.header[f'COMB{n}'] = inim
+	comdata.header = aligned_imlist[0].header
+	comdata.header['IMNAME'] = os.path.basename(comim)
+	comdata.header['NCOMBINE'] = len(aligned_imlist)
+	for n, inim in enumerate(imlist):
+		comdata.header[f'COMB{n}'] = os.path.basename(inim)
+	comdata.header['DATE-OBS'] = (jd.isot, 'YYYY-MM-DDThh:mm:ss observation start, UT')
+	comdata.header['JD'] = (jd.value, 'Julian Date at start of exposure')
+	comdata.header['MJD'] = (jd.mjd, 'Modified Julian Date at start of exposure')
+	comdata.header['EXPTIME'] = (calc_total_exptime(imlist), 'Total Exposure time [sec]')
 	#	Save
-	dateobs = nmflat.header['DATE-OBS'].split('T')[0].replace('-', '')
-	filename = f'{dateobs}-n{filte}.fits'
-	nmflat.header['FILENAME'] = filename
-	nmflat.write(f'{os.path.dirname(inim)}/{filename}', overwrite=True)
-	return nmflat
+	comdata.write(comim, overwrite=True)
+	# return comdata
 #------------------------------------------------------------
 #	Alignment
-def gregistering(images_to_align, refim):
+def gregistering(imlist, refim):
 	import alipy
-
 	identifications = alipy.ident.run(
 		refim,
-		images_to_align,
+		imlist,
 		visu=False
 		)
-	# for inim, id in zip(images_to_align, identifications):
+	# for inim, id in zip(imlist, identifications):
 	for id in identifications:
 		if id.ok == True: # i.e., if it worked
 			# print("%20s : %20s, flux ratio %.2f" % (id.ukn.name, id.trans, id.medfluxratio))
@@ -76,11 +105,10 @@ def gregistering(images_to_align, refim):
 				)
 			alipy.align.irafalign(**params_align)
 		else:
-			# print("%20s : no transformation found !" % (id.ukn.name))
 			print(f"{id.ukn.name} : No transformation found!")
 	outputshape = alipy.align.shape(refim)
 #------------------------------------------------------------
-def imcombine_routine(imlist):
+def imcombine_iraf(imlist):
 	'''
 	path_data = '/data3/paek/factory/doao/20201209-1m-IMSNG'
 	images_to_align = sorted(glob.glob('/data3/paek/factory/doao/20201209-1m-IMSNG/Calib-DOAO*-R-60.fits'))
@@ -113,28 +141,32 @@ def imcombine_routine(imlist):
 						)
 	iraf.imcombine(**param_imcomb)
 
-	for i, inim in imlist: fits.setval(inim, keyword=f'IMCOMB{i}', value=os.path.basename(inim), comment=f'Combined image {i}')
-	fits.setval(inim, keyword='DATE-OBS', value=jd.isot, comment='YYYY-MM-DDThh:mm:ss observation start, UT')
-	fits.setval(inim, keyword='JD', value=jd.value, comment='Julian Date at start of exposure')
-	fits.setval(inim, keyword='MJD', value=jd.mjd, comment='Modified Julian Date at start of exposure')
-	fits.setval(inim, keyword='EXPTIME', value=exptime, comment='Total Exposure time [sec]')
+	for i, inim in enumerate(imlist):
+		fits.setval(comim, keyword=f'IMCOMB{i}', value=os.path.basename(inim), comment=f'Combined image {i}')
+	fits.setval(comim, keyword='DATE-OBS', value=jd.isot, comment='YYYY-MM-DDThh:mm:ss observation start, UT')
+	fits.setval(comim, keyword='JD', value=jd.value, comment='Julian Date at start of exposure')
+	fits.setval(comim, keyword='MJD', value=jd.mjd, comment='Modified Julian Date at start of exposure')
+	fits.setval(comim, keyword='EXPTIME', value=exptime, comment='Total Exposure time [sec]')
 
 	return outim
-
+#------------------------------------------------------------
 def calc_jd_median(imlist):
-	return 	Time(np.median([fits.getheader(inim)['JD'] for inim in imlist]), format='jd')
+	return Time(np.median([fits.getheader(inim)['JD'] for inim in imlist]), format='jd')
+def calc_total_exptime(imlist):
+	return int(np.sum([fits.getheader(inim)['EXPTIME'] for inim in imlist]))
 
+#------------------------------------------------------------
 def make_list_file(imlist, outname,):
 	f = open(f'{outname}', 'w')
 	for i, inim in enumerate(imlist):
 		f.write(f'{inim}\n')
 	f.close()
-
+#------------------------------------------------------------
 def split_dateobs(dateobs):
 	utdate = dateobs.split('T')[0].replace('-', '')
 	uttime = dateobs.split('T')[1].replace(':', '')[:6]
 	return utdate, uttime
-
+#------------------------------------------------------------
 def combine_name(imlist):
 	"""
 	"""
@@ -145,9 +177,10 @@ def combine_name(imlist):
 	jdmed = calc_jd_median(imlist)
 	dateobsmed = jdmed.isot
 	utdate, uttime = split_dateobs(dateobsmed)
-	exptime = int(np.sum([fits.getheader(inim)['EXPTIME'] for inim in imlist]))
+	exptime = calc_total_exptime(imlist)
 	filte = hdr['FILTER']
 	obj = hdr['OBJECT']
+	obs = hdr['OBSERVAT']
 
 	outim = f'{path_data}/Calib-{obs}-{obj}-{utdate}-{uttime}-{filte}-{exptime}.com.fits'
 	return outim
