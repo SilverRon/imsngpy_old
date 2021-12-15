@@ -49,7 +49,8 @@ else:
 		}
 
 #	Test image
-inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063118-R-180.com.fits'
+# inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063118-R-180.com.fits'
+inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063001-R-60.fits'
 from astropy.io import fits
 hdr = fits.getheader(inim)
 if ('OBSERVAT' in hdr.keys()) & ('CCDNAME' in hdr.keys()):
@@ -123,7 +124,8 @@ aperture_dict = dict(
 	),
 )
 
-apertures = peeing.value*np.arange(0.25, 8+0.25, 0.25)
+# apertures = peeing.value*np.arange(0.25, 8+0.25, 0.25)
+apertures = peeing.value*np.linspace(0.25, 5, 32)
 apertures_input = ','.join([str(d) for d in apertures])
 #%%
 prefix = 'growthcurve'
@@ -131,6 +133,155 @@ path_param = f'{path_config}/{prefix}.param'
 path_conv = f'{path_config}/{prefix}.conv'
 path_nnw = f'{path_config}/{prefix}.nnw'
 path_conf = f'{path_config}/{prefix}.sex'
+
+outcat = f'{os.path.splitext(inim)[0]}.gc.cat'
+#	SE parameters
+param_insex = dict(
+	#------------------------------
+	#	CATALOG
+	#------------------------------
+	CATALOG_NAME = outcat,
+	#------------------------------
+	#	CONFIG FILES
+	#------------------------------
+	CONF_NAME = path_conf,
+	PARAMETERS_NAME = path_param,
+	FILTER_NAME = path_conv,    
+	STARNNW_NAME = path_nnw,
+	#------------------------------
+	#	PHOTOMETRY
+	#------------------------------
+	PHOT_APERTURES = apertures_input,
+	GAIN = str(gain.value),
+	PIXEL_SCALE = str(pixscale.value),
+	#------------------------------
+	#	STAR/GALAXY SEPARATION
+	#------------------------------
+	SEEING_FWHM = str(seeing.value),
+	#------------------------------
+	#	EXTRACTION
+	#------------------------------
+	DETECT_MINAREA = gphot_dict['DETECT_MINAREA'],
+	DETECT_THRESH = gphot_dict['DETECT_THRESH'],
+	DEBLEND_NTHRESH = gphot_dict['DEBLEND_NTHRESH'],
+	DEBLEND_MINCONT = gphot_dict['DEBLEND_MINCONT'],
+	#------------------------------
+	#	BACKGROUND
+	#------------------------------
+	BACK_SIZE = '128',
+	BACK_FILTERSIZE = '10',
+	BACKPHOTO_TYPE = 'LOCAL',
+	#------------------------------
+	#	CHECK IMAGE
+	#------------------------------
+	CHECKIMAGE_TYPE = 'NONE',
+	CHECKIMAGE_NAME = 'check.fits',
+)
+os.system(sexcom(inim, param_insex))
+rawtbl = ascii.read(outcat)
+#	
+a = hdr['naxis1']/2.
+b = hdr['naxis2']/2.
+#	Small squre based on frac
+a_ = a*np.sqrt(frac)
+b_ = b*np.sqrt(frac)
+gctbl = rawtbl[
+	(rawtbl['FLAGS']==0) &
+	(rawtbl['CLASS_STAR']>0.9) &
+	(rawtbl['X_IMAGE']>a-a_) & (rawtbl['X_IMAGE']<a+a_) &
+	(rawtbl['Y_IMAGE']>b-b_) & (rawtbl['Y_IMAGE']<b+b_)
+]
+gctbl['APER_OPT'] = 0.0
+for n in range(len(apertures)):
+	if n==0:
+		gctbl[f'SNR'] = gctbl[f'FLUX_APER']/gctbl[f'FLUXERR_APER']
+	else:
+		gctbl[f'SNR_{n}'] = gctbl[f'FLUX_APER_{n}']/gctbl[f'FLUXERR_APER_{n}']
+#%%
+indx_col = np.where('SNR'==np.array(gctbl.keys()))
+x=apertures*pixscale.value
+for raw in range(len(gctbl)):
+	y = np.array(list(gctbl[raw])[indx_col[0].item():])
+	y[np.isnan(y)] = 0.0
+	indx_peak = np.where(y==np.max(y))
+	if len(y)-1 in indx_peak:
+		x_opt=None
+	else:
+		x_opt=x[indx_peak].item()
+		plt.plot(x, y, color='silver', alpha=0.125)
+		plt.axvline(x=x_opt, ls='-', linewidth=0.5, color='dodgerblue', alpha=0.125)
+		gctbl['APER_OPT'][raw] = x_opt
+aper_opt = np.median(gctbl['APER_OPT'])	#	[arcsec]
+plt.axvline(x=aper_opt, ls='-', linewidth=2.0, color='tomato', alpha=0.5, label=f'OPT.APERTURE : {round(aper_opt, 3)}\"\n(SEEING*{round(aper_opt/seeing.value, 3)})')
+plt.axvline(x=seeing.value, ls='-', linewidth=2.0, color='gold', alpha=0.5, label=f'SEEING : {round(seeing.value, 3)} \"')
+
+plt.title(os.path.basename(inim), fontsize=14)
+plt.grid('both', ls='--', color='silver', alpha=0.5)
+plt.xlabel('Aperture Diameter [arcsec]', fontsize=14)
+plt.ylabel('SNR', fontsize=14)
+plt.legend(fontsize=14, framealpha=0.0, loc='upper right')
+# plt.yscale('log')
+gcoutpng = f'{os.path.splitext(inim)[0]}.gc.png'
+plt.savefig(gcoutpng, dpi=500, overwrite=True)
+#%%
+
+aper_dict = dict(
+	MAG_AUTO = dict(
+		size=0.0,
+		errkey='MAGERR_AUTO',
+		suffix='AUTO',
+		comment='',
+	),
+	MAG_APER = dict(
+		size=aper_opt/pixscale.value,
+		errkey='MAGERR_APER',
+		suffix='AUTO',
+		comment='Best aperture diameter based on SNR curve [pix]',
+	),
+	MAG_APER_1 = dict(
+		size=2*0.6731*peeing.value,
+		errkey='MAGERR_APER_1',
+		suffix='APER_1',
+		comment='Best aperture diameter assuming the gaussian profile [pix]',
+	),
+	MAG_APER_2 = dict(
+		size=2*peeing.value,
+		errkey='MAGERR_APER_2',
+		suffix='APER_2',
+		comment='2*seeing aperture diameter [pix]',
+	),
+	MAG_APER_3 = dict(
+		size=3*peeing.value,
+		errkey='MAGERR_APER_3',
+		suffix='APER_3',
+		comment='3*seeing aperture diameter [pix]',
+	),
+	MAG_APER_4 = dict(
+		size=(3*u.arcsec/pixscale).value,
+		errkey='MAGERR_APER_4',
+		suffix='APER_4',
+		comment='Fixed 3\" aperture diameter [pix]',
+	),
+	MAG_APER_5 = dict(
+		size=(5*u.arcsec/pixscale).value,
+		errkey='MAGERR_APER_5',
+		suffix='APER_5',
+		comment='Fixed 5\" aperture diameter [pix]',
+	),
+)
+
+#%%
+prefix = 'gpphot'
+path_param = f'{path_config}/{prefix}.param'
+path_conv = f'{path_config}/{prefix}.conv'
+path_nnw = f'{path_config}/{prefix}.nnw'
+path_conf = f'{path_config}/{prefix}.sex'
+
+apertures = []
+for magkey in list(aper_dict.keys()):
+	if magkey != 'MAG_AUTO':
+		apertures.append(aper_dict[magkey]['size'])
+apertures_input = ','.join([str(d) for d in apertures])
 
 outcat = f'{os.path.splitext(inim)[0]}.cat'
 #	SE parameters
@@ -176,89 +327,23 @@ param_insex = dict(
 	CHECKIMAGE_NAME = 'check.fits',
 )
 os.system(sexcom(inim, param_insex))
-intbl = ascii.read(outcat)
-gctbl = intbl[
-	(intbl['FLAGS']==0) &
-	(intbl['CLASS_STAR']>0.9)
-	# (intbl[''])
-]
-gctbl['APER_OPT'] = 0.0
-for n in range(len(apertures)):
-	if n==0:
-		gctbl[f'SNR'] = gctbl[f'FLUX_APER']/gctbl[f'FLUXERR_APER']
-	else:
-		gctbl[f'SNR_{n}'] = gctbl[f'FLUX_APER_{n}']/gctbl[f'FLUXERR_APER_{n}']
-#%%
-indx_col = np.where('SNR'==np.array(gctbl.keys()))
-x=apertures*pixscale.value
-for raw in range(len(gctbl)):
-	y = np.array(list(gctbl[raw])[indx_col[0].item():])
-	y[np.isnan(y)] = 0.0
-	indx_peak = np.where(y==np.max(y))
-	if len(y)-1 in indx_peak:
-		x_opt=None
-	else:
-		x_opt=x[indx_peak].item()
-		plt.plot(x, y, color='silver', alpha=0.125)
-		plt.axvline(x=x_opt, ls='-', linewidth=0.5, color='dodgerblue', alpha=0.125)
-		gctbl['APER_OPT'][raw] = x_opt
-aper_opt = np.median(gctbl['APER_OPT'])
-plt.axvline(x=aper_opt, ls='-', linewidth=2.0, color='tomato', alpha=0.5, label=f'OPT.APERTURE : {round(aper_opt, 3)}\"\n(SEEING*{round(aper_opt/seeing.value, 3)})')
-plt.axvline(x=seeing.value, ls='-', linewidth=2.0, color='gold', alpha=0.5, label=f'SEEING : {round(seeing.value, 3)} \"')
-
-plt.grid('both', ls='--', color='silver', alpha=0.5)
-plt.xlabel('Aperture Diameter [arcsec]', fontsize=14)
-plt.ylabel('SNR', fontsize=14)
-plt.legend(fontsize=14, framealpha=0.0, loc='upper right')
-# plt.yscale('log')
-gcoutpng = f'{os.path.splitext(inim)[0]}.gc.png'
-plt.savefig(gcoutpng, dpi=500, overwrite=True)
-#%%
+rawtbl = ascii.read(outcat)
+n=1
+magkey = list(aper_dict.keys())[n]
+indx_sel = np.where(
+	(rawtbl['FLAGS']<=float(gphot_dict['flagcut'])) &
+	(rawtbl[aper_dict[magkey]['errkey']]<=float(gphot_dict['inmagerupper']))
+)
 
 
-"""""
+from query import *
 
-
-
-
-	inmagkeys = [
-				'MAG_AUTO',
-				'MAG_APER',
-				'MAG_APER_1',
-				'MAG_APER_2',
-				'MAG_APER_3',
-				'MAG_APER_4',
-				'MAG_APER_5',
-				]
-	inmagerkeys = []
-	for key in inmagkeys: inmagerkeys.append(key.replace('MAG_', 'MAGERR_'))
-	aperkeys = []
-	for key in inmagkeys: aperkeys.append(key.replace('MAG_', ''))
-	aperlist = [0, optaper, 2*0.6731*peeing.value, peeing.value*2, peeing.value*3, (3*u.arcsecond/pixscale).value, (5*u.arcsecond/pixscale).value]	
-	aperdiscription = ['MAG_AUTO DIAMETER [pix]', 'BEST APERTURE DIAMETER in SNR curve [pix]', 'BEST GAUSSIAN APERTURE DIAMETER [pix]', '2*SEEING APERTURE DIAMETER [pix]', '3*SEEING APERTURE DIAMETER [pix]', """FIXED 3" APERTURE DIAMETER [pix]""", """FIXED 5" APERTURE DIAMETER [pix]""",]
-
-
-'''
-if __name__ == '__main__':
-	#	Seeing measurement
-	print(f"""{'-'*60}\n#\tSEEING MEASUREMENT\n{'-'*60}""")
-	with multiprocessing.Pool(processes=ncore) as pool:
-		results = pool.starmap(
-			get_seeing,
-			zip(
-					omtbl['now'],
-					repeat(gain), 
-					repeat(pixscale), 
-					repeat(fov),
-					repeat(path_conf), 
-					repeat(path_param), 
-					repeat(path_conv), 
-					repeat(path_nnw), 
-					repeat(3*u.arcsec),
-					repeat(0.68),
-					repeat(5),
-			)
-		)
-		print('DONE')'''
-# %%
-"""""
+reftbl = querybox(
+	'PS1',
+	hdr['OBJECT'],
+	hdr['CRVAL1'],
+	hdr['CRVAL2'],
+	'.',
+	radius=fov.to(u.deg).value,
+	refmagkey=hdr['FILTER'],
+	)

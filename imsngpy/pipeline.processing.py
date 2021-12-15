@@ -758,4 +758,25 @@ for i in range(len(comimlist)):
 	aligned_imlist = [CCDData(fits.getdata(tgtim), unit='adu', header=fits.getheader(tgtim))]
 	for srcim in srcimlist: aligned_imlist.append(align_astroalign(srcim, tgtim,))
 	imcombine_ccddata(aligned_imlist, imlist=None)
-
+#------------------------------------------------------------
+#	Seeing measurement again
+if __name__ == '__main__':
+	print(f"""{'-'*60}\n#\tSEEING MEASUREMENT\n{'-'*60}""")
+	with multiprocessing.Pool(processes=ncore) as pool:
+		results = pool.starmap(
+			get_seeing,
+			zip(
+					omtbl['now'],
+					repeat(gain), 
+					repeat(pixscale), 
+					repeat(fov),
+					repeat(path_conf), 
+					repeat(path_param), 
+					repeat(path_conv), 
+					repeat(path_nnw), 
+					repeat(3*u.arcsec),
+					repeat(0.68),
+					repeat(5),
+			)
+		)
+		print('DONE')
