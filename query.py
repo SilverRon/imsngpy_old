@@ -60,7 +60,7 @@ def geturl(ra, dec, size=240, output_size=None, filters="grizy", format="jpg", c
 			url.append(urlbase+filename)
 	return url
 #------------------------------------------------------------
-def getimages(ra,dec,size=240,filters="grizy"):
+def getps1image(ra,dec,size=240,filters="grizy"):
 	"""
 	Query ps1filenames.py service to get a list of images
 	ra, dec = position in degrees
@@ -265,6 +265,7 @@ def query_sdss(radeg, dedeg, radius=1.0):
 	from astropy.coordinates import SkyCoord
 	Vizier.ROW_LIMIT = -1
 	import time
+	import astropy.units as u
 	st = time.time()
 	query = Vizier.query_region(
 		SkyCoord(ra=radeg, dec=dedeg, unit=(u.deg, u.deg), frame='icrs'),
@@ -303,6 +304,7 @@ def query_ps1(radeg, dedeg, radius=1.0):
 	from astropy.coordinates import SkyCoord
 	Vizier.ROW_LIMIT = -1
 	import time
+	import astropy.units as u
 	st = time.time()
 	query = Vizier.query_region(
 		SkyCoord(ra=radeg, dec=dedeg, unit=(u.deg, u.deg), frame='icrs'),
@@ -315,6 +317,7 @@ def query_ps1(radeg, dedeg, radius=1.0):
 	rawtbl = query[0]
 
 	#	Flag integer --> binary
+	import numpy as np
 	f_objID_bin = np.array([bin(i)[2:] for i in rawtbl['f_objID']])
 
 	#	SELECT POINT SOURCE & NON-VARIABLE & GOOD QUALITY STARS
@@ -325,7 +328,7 @@ def query_ps1(radeg, dedeg, radius=1.0):
 		while len(row) < 31:
 			row.insert(0, 0)
 		data_rows.append(row)
-
+	from astropy.table import Table
 	flagtbl = Table(
 		rows=data_rows,
 		names=flagcol,
@@ -468,7 +471,6 @@ def query_2mass(radeg, dedeg, radius=1.0):
 	Query radius [deg]: {radius}"""
 	print(comment)
 
-
 	#	QUERY PART
 	from astropy.coordinates import SkyCoord
 	Vizier.ROW_LIMIT = -1
@@ -482,7 +484,82 @@ def query_2mass(radeg, dedeg, radius=1.0):
 	print(f"{'-'*60}\nGet {catalog} ({round(time.time()-st, 3)} sec)")
 	rawtbl = query[catalog]
 
+	jqlist = ['']*len(rawtbl)
+	hqlist = ['']*len(rawtbl)
+	kqlist = ['']*len(rawtbl)
+
+	for j in ['Q', 'R', 'B', 'C']:
+		for i, q in enumerate(rawtbl[f'{j}flg']):
+			jqlist[i] = q[0]
+			hqlist[i] = q[1]
+			kqlist[i] = q[2]
+
+		rawtbl[f'J_{j}flg'] = jqlist
+		rawtbl[f'H_{j}flg'] = hqlist
+		rawtbl[f'K_{j}flg'] = kqlist	
+	#	http://vizier.u-strasbg.fr/viz-bin/VizieR-3?-source=II/246/out
 	#	SELECT POINT SOURCE & NON-VARIABLE & GOOD QUALITY STARS
+	indx_ps = np.where(
+		#	Asteroid
+		(rawtbl['Aflg']==0) &
+		#	Contamination by extended source
+		(rawtbl['Xflg']==0) &
+		#	Quality flag
+		#	J
+		(
+			(rawtbl['J_Qflg']=='A') | 
+			(rawtbl['J_Qflg']=='B') | 
+			(rawtbl['J_Qflg']=='C') | 
+			(rawtbl['J_Qflg']=='D')
+			) &
+		#	H
+		(
+			(rawtbl['H_Qflg']=='A') | 
+			(rawtbl['H_Qflg']=='B') | 
+			(rawtbl['H_Qflg']=='C') | 
+			(rawtbl['H_Qflg']=='D')
+			) &
+		#	K
+		(
+			(rawtbl['K_Qflg']=='A') | 
+			(rawtbl['K_Qflg']=='B') | 
+			(rawtbl['K_Qflg']=='C') | 
+			(rawtbl['K_Qflg']=='D')
+			) @
+		#	Read flag
+		#	J
+		(
+			(rawtbl['J_Rflg']=='1') | 
+			(rawtbl['J_Rflg']=='2') | 
+			(rawtbl['J_Rflg']=='3')
+			) &
+		#	H
+		(
+			(rawtbl['H_Rflg']=='1') | 
+			(rawtbl['H_Rflg']=='2') | 
+			(rawtbl['H_Rflg']=='3')
+			) &
+		#	K
+		(
+			(rawtbl['K_Rflg']=='1') | 
+			(rawtbl['K_Rflg']=='2') | 
+			(rawtbl['K_Rflg']=='3') 
+			) &
+		#	Blended flag
+		#	J
+		(
+			(rawtbl['J_Bflg']>=1)
+			) &
+		#	H
+		(
+			(rawtbl['H_Bflg']>=1)
+			) &
+		#	K
+		(
+			(rawtbl['K_Bflg']>=1)
+			)
+	)
+
 	if	band	== None:
 		indx_flg		= np.where(	(dum1['Aflg'] == 0) &
 									(dum1['Xflg'] == 0)	)
