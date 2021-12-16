@@ -50,9 +50,11 @@ else:
 
 #	Test image
 # inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063118-R-180.com.fits'
-inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063001-R-60.fits'
+# inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063001-R-60.fits'
+inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063118-R-180.com.fits'
 from astropy.io import fits
 hdr = fits.getheader(inim)
+filte = hdr['FILTER']
 if ('OBSERVAT' in hdr.keys()) & ('CCDNAME' in hdr.keys()):
 	obs = hdr['OBSERVAT']
 	ccd = hdr['CCDNAME']
@@ -183,6 +185,7 @@ rawtbl = ascii.read(outcat)
 a = hdr['naxis1']/2.
 b = hdr['naxis2']/2.
 #	Small squre based on frac
+frac = 0.95
 a_ = a*np.sqrt(frac)
 b_ = b*np.sqrt(frac)
 gctbl = rawtbl[
@@ -330,20 +333,100 @@ os.system(sexcom(inim, param_insex))
 rawtbl = ascii.read(outcat)
 n=1
 magkey = list(aper_dict.keys())[n]
+
+
+c_cent = SkyCoord(hdr['CRVAL1'], hdr['CRVAL2'], unit=u.deg)
+c_raw = SkyCoord(rawtbl['ALPHA_J2000'], rawtbl['DELTA_J2000'], unit=u.deg)
+
+sep = c_raw.separation(c_cent)
+
+
+
 indx_sel = np.where(
+	(rawtbl['CLASS_STAR']>0.9) &
 	(rawtbl['FLAGS']<=float(gphot_dict['flagcut'])) &
-	(rawtbl[aper_dict[magkey]['errkey']]<=float(gphot_dict['inmagerupper']))
+	(rawtbl[aper_dict[magkey]['errkey']]<=float(gphot_dict['inmagerupper'])) &
+	(sep<fov/2*float(gphot_dict['photfraction']))
 )
 
+seltbl = rawtbl[indx_sel]
 
 from query import *
-
+refcatname = 'PS1'
 reftbl = querybox(
-	'PS1',
-	hdr['OBJECT'],
-	hdr['CRVAL1'],
-	hdr['CRVAL2'],
-	'.',
-	radius=fov.to(u.deg).value,
-	refmagkey=hdr['FILTER'],
+	refcatname=refcatname,
+	racent=184.683,
+	decent=14.401,
+	outcat=f'{os.path.dirname(inim)}/ref.test.{refcatname}.cat',
+	radius=0.5,
+	refmagkey=''
 	)
+
+from astropy.coordinates import SkyCoord
+c_ref = SkyCoord(reftbl['ra'], reftbl['dec'], unit=u.deg)
+c = SkyCoord(seltbl['ALPHA_J2000'], seltbl['DELTA_J2000'], unit=u.deg)
+
+indx, sep, _ = c.match_to_catalog_sky(c_ref)
+from astropy.table import hstack
+mtbl = hstack([seltbl, reftbl[indx]])
+mtbl['sep'] = sep
+mtbl = mtbl[mtbl['sep']<seeing]
+
+mmtbl = mtbl[
+	(
+		(mtbl[filte]>float(gphot_dict['refmaglower'])) &
+		(mtbl[filte]<float(gphot_dict['refmagupper'])) &
+		(mtbl[f'{filte}err']<float(gphot_dict['refmagerupper']))
+	)
+	]
+
+inmagkey = 'MAG_APER'
+
+zparr = mmtbl[filte]-mmtbl[inmagkey]
+plt.plot(mmtbl[filte], zparr, marker='+', ls='none')
+
+
+indx_zp = np.where(
+	(~np.isnan(mmtbl[filte].mask)) &
+	(~np.isnan(mmtbl[inmagkey].mask))	
+)
+zparr = mmtbl[filte]-mmtbl[inmagkey]
+zparrm = zparr[indx_zp]
+
+
+zparrmc = sigma_clip(np.copy(zparrm))
+
+zp = np.median(zparrmc.data[~zparrmc.mask])
+zper = np.std(zparrmc.data[~zparrmc.mask])
+
+print(zp, zper)
+
+plt.scatter(rawtbl['X_IMAGE'], rawtbl['Y_IMAGE'], marker='.', color='grey', alpha=0.25)
+plt.scatter(mmtbl['X_IMAGE'][indx_zp], mmtbl['Y_IMAGE'][indx_zp], c=zparrmc)
+plt.colorbar()
+
+'''
+from astropy.stats import sigma_clip
+#	REMOVE BLANK ROW (=99)	
+indx_avail      = np.where( (mmtbl[filte] != 99) & (mmtbl[filte] != 99) )
+intbl           = intbl[indx_avail]
+zplist          = np.copy(intbl[refmagkey] - intbl[filte])
+intbl['zp']		= zplist
+#	SIGMA CLIPPING
+zplist_clip     = sigma_clip(zplist, sigma=sigma, maxiters=None, cenfunc=np.median, copy=False)
+indx_alive      = np.where( zplist_clip.mask == False )
+indx_exile      = np.where( zplist_clip.mask == True )
+#	RE-DEF. ZP LIST AND INDEXING CLIPPED & NON-CLIPPED
+intbl_alive     = intbl[indx_alive]
+intbl_exile     = intbl[indx_exile]
+#	ZP & ZP ERR. CALC.
+if method == 'default':
+	zp              = np.median(np.copy(intbl_alive['zp']))
+	zper			= np.std(np.copy(intbl_alive['zp']))
+elif method == 'weightedmean':
+	print(method)
+	mager = sqsum(intbl_alive[inmagerkey], intbl_alive[refmagerkey])
+	w0 = 1/mager
+	w = w0/np.sum(w0)
+	zp = np.sum(w*intbl_alive['zp'])/np.sum(w)
+	zper = 1/np.sqrt(np.sum(w))'''

@@ -161,3 +161,6 @@ def identify_ccdinfo(ic0, obs, ccdtbl):
 		(ccdtbl['value']==ccdval)
 	)
 	return ccdkey, ccdval, ccdtype, obsccd
+#------------------------------------------------------------
+def sqsum(a, b):
+	return np.sqrt(a**2.+b**2.)

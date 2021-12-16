@@ -152,9 +152,9 @@ def imcombine_iraf(imlist):
 #------------------------------------------------------------
 def calc_jd_median(imlist):
 	return Time(np.median([fits.getheader(inim)['JD'] for inim in imlist]), format='jd')
+#------------------------------------------------------------
 def calc_total_exptime(imlist):
 	return int(np.sum([fits.getheader(inim)['EXPTIME'] for inim in imlist]))
-
 #------------------------------------------------------------
 def make_list_file(imlist, outname,):
 	f = open(f'{outname}', 'w')
@@ -184,3 +184,4 @@ def combine_name(imlist):
 
 	outim = f'{path_data}/Calib-{obs}-{obj}-{utdate}-{uttime}-{filte}-{exptime}.com.fits'
 	return outim
+#------------------------------------------------------------
