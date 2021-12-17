@@ -25,3 +25,11 @@ def getccdinfo(obs, path_ccd):
 	outdict['rdnoise'] = ccdtbl['RDnoise'].item() * u.electron
 
 	return outdict
+
+def file2dict(path_infile):
+	out_dict = dict()
+	f = open(path_infile)
+	for line in f:
+		key, val = line.split()
+		out_dict[key] = val
+	return out_dict

@@ -74,10 +74,10 @@ except:
 	ncore = 8
 """
 #	Test setting
-# path_raw = '/data6/obsdata/LOAO/1994_1026'
+path_raw = '/data6/obsdata/LOAO/1994_1026'
 # path_raw = '/data6/obsdata/LOAO/1994_1003'
 # path_raw = '/data6/obsdata/LOAO/1969_0119'
-path_raw = '/data6/obsdata/LOAO/test'
+# path_raw = '/data6/obsdata/LOAO/test'
 obs = 'LOAO'
 ncore = 8
 #------------------------------------------------------------
@@ -148,13 +148,13 @@ for key, val, suf, ccd in zip((ccdtbl['key'][ccdtbl['obs']==obs]), (ccdtbl['valu
 			obsccd = f'{obs}_{suffix}'
 		print(f'OBSERVAT : {obs}\nCCD KEYWORD : {key}\nCCD HEADER VALUE : {val}\nCCD NAME : {ccdtype}\nSUFFIX : {suffix}\n==> OBS_CCD : {obsccd}')
 '''
+ccdkey, ccdval, ccdtype, obsccd = identify_ccdinfo(ic0, obs, ccdtbl)
 #	CCD INFO
 indx_ccd = np.where(
 	(ccdtbl['obs']==obs) &
 	(ccdtbl['key']==ccdkey) &
 	(ccdtbl['value']==ccdval)
 )
-ccdkey, ccdval, ccdtype, obsccd = identify_ccdinfo(ic0, obs, ccdtbl)
 print(f"""{'-'*60}\n#\tCCD INFO\n{'-'*60}""")
 gain = ccdtbl['gain'][indx_ccd][0]*(u.electron/u.adu)
 rdnoise = ccdtbl['readnoise'][indx_ccd][0]*(u.electron)

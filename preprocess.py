@@ -43,7 +43,7 @@ def master_bias(imlist):
 	comment = f"""{'-'*60}\n#\tBIAS MASTER FRAME (<--{len(imlist)} frames)\n{'-'*60}"""
 	print(comment)
 	#	Combine
-	combiner = ccdproc.Combiner([CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim)) for inim in imlist])
+	combiner = ccdproc.Combiner([CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim)) for inim in imlist], dtype=np.float32)
 	mbias = combiner.median_combine(median_func=bn_median)
 	#	Header
 	mbias.header = fits.getheader(imlist[0])
@@ -62,7 +62,7 @@ def master_dark(imlist, mbias):
 	comment = f"""{'-'*60}\n#\tDARK MASTER FRAME (<--{len(imlist)} frames)\n{'-'*60}"""
 	print(comment)
 	#	Combine
-	combiner = ccdproc.Combiner([CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim)) for inim in imlist])
+	combiner = ccdproc.Combiner([CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim)) for inim in imlist], dtype=np.float32)
 	mdark = ccdproc.subtract_bias(combiner.median_combine(median_func=bn_median), mbias)
 	#	Header
 	mdark.header = fits.getheader(imlist[0])
@@ -85,7 +85,7 @@ def master_flat(imlist, mbias, mdark, filte=''):
 
 
 	#	Combine
-	combiner = ccdproc.Combiner([subtract_bias_dark(inim, mbias, mdark) for inim in imlist])
+	combiner = ccdproc.Combiner([subtract_bias_dark(inim, mbias, mdark) for inim in imlist], dtype=np.float32)
 	combiner.minmax_clipping()
 	combiner.scaling = scaling_func
 	nmflat = combiner.median_combine(median_func=bn_median)	

@@ -28,6 +28,9 @@ def bn_median(masked_array, axis=None):
     return np.ma.array(med, mask=np.isnan(med))
 #------------------------------------------------------------
 def align_astroalign(srcim, tgtim,):
+	'''
+	http://quatrope.github.io/astroalign/
+	'''
 	print(f'Align {os.path.basename(srcim)} to {os.path.basename(tgtim)}')
 	tdata, thdr = fits.getdata(tgtim, header=True)
 	tzero = np.median(tdata[~np.isnan(tdata)].flatten())
@@ -64,9 +67,8 @@ def imcombine_ccddata(aligned_imlist, imlist=None):
 	print(f'==> {os.path.basename(comim)}')
 
 	#	Combine
-	combiner = ccdproc.Combiner(aligned_imlist)
+	combiner = ccdproc.Combiner(aligned_imlist, dtype=np.float32)
 	comdata = combiner.median_combine(median_func=bn_median)	
-
 
 	#	Header
 	comdata.header = aligned_imlist[0].header
@@ -79,7 +81,8 @@ def imcombine_ccddata(aligned_imlist, imlist=None):
 	comdata.header['MJD'] = (jd.mjd, 'Modified Julian Date at start of exposure')
 	comdata.header['EXPTIME'] = (calc_total_exptime(imlist), 'Total Exposure time [sec]')
 	#	Save
-	comdata.write(comim, overwrite=True)
+	# comdata.write(comim, overwrite=True)
+	fits.writeto(comim, comdata.data, header=comdata.meta, overwrite=True)
 	# return comdata
 #------------------------------------------------------------
 #	Alignment

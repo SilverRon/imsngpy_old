@@ -137,6 +137,7 @@ def downimage_routine(outim, name, ra, dec, size, output_size, filters, format, 
 #------------------------------------------------------------
 def querybox(refcatname, racent, decent, outcat, radius=0.5, refmagkey=''):
 	'''
+	refcatname = 'PS1'
 	reftbl = querybox(**param_query)
 	outcat = '/data3/paek/factory/refcat/test.cat'
 	'''
@@ -145,113 +146,40 @@ def querybox(refcatname, racent, decent, outcat, radius=0.5, refmagkey=''):
 	#------------------------------------------------------------
 	refcatlist = glob.glob(f'{os.path.dirname(outcat)}/*.cat')
 	#------------------------------------------------------------
-	if refcatname.upper() == 'PS1':
-		if outcat not in refcatlist:
+	if outcat not in refcatlist:
+		#	PS1
+		if refcatname.upper() == 'PS1':
 			#	Query
 			querytbl = query_ps1(racent, decent, radius=radius)
-			# querytbl.write(refcatname)
 			#	Convert magnitude system to unified system
 			reftbl = convert_ps1toTonry(querytbl)
 			reftbl.write(outcat, format='ascii.tab', overwrite=True)
-		else:
-			#	If exist, skip query
-			print(f'')
-			reftbl = ascii.read(outcat)
-	#------------------------------------------------------------
-	elif refcatname.upper()	== 'SDSS':
-		if outcat not in refcatlist:
+		#	SDSS
+		elif refcatname.upper()	== 'SDSS':
 			#	Query
 			querytbl = query_sdss(racent, decent, radius=radius)
 			#	Convert magnitude system to unified system
 			reftbl = convert_sdsstoBlaton(querytbl)
 			reftbl.write(outcat, format='ascii.tab', overwrite=True)
-		else:
-			#	If exist, skip query
-			reftbl = ascii.read(outcat)
-	#------------------------------------------------------------
-	elif refcatname.upper() == 'APASS':
-		if outcat not in refcatlist:
+		#	APASS
+		elif refcatname.upper() == 'APASS':
 			#	Query
 			querytbl = query_apass(racent, decent, radius=radius)
 			#	Convert magnitude system to unified system
 			reftbl = convert_apasstoBlatonAndLupton(querytbl)
 			reftbl.write(outcat, format='ascii.tab', overwrite=True)
-		else:
-			#	If exist, skip query
-			reftbl = ascii.read(outcat)
-		"""
-		#	Medium-band
-		if 'm' in refmagkey:
-			#	No med catalog
-			if outcat not in refcatlist:
-				#	No APASS catalog
-				if incat not in refcatlist:
-					querytbl_ = apass_query(obj, racent, decent, outcat, radius=radius)
-				else:
-					querytbl_ = ascii.read(incat)
-				#	APASS catalog --> med catalog
-				reftbl = phot_tbd.apass2med(incat, outcat)
-				refcat = outcat
-				reftbl.rename_column('RA_ICRS', 'ra')
-				reftbl.rename_column('DE_ICRS', 'dec')
-			else:
-				reftbl = ascii.read(outcat)
-				reftbl.rename_column('RA_ICRS', 'ra')
-				reftbl.rename_column('DE_ICRS', 'dec')
-				for key in reftbl.keys():
-					if 'mag' in key:
-						nkey = key.replace('mag', '')
-						if 'e_' in key:
-							nkey = nkey.replace('e_', '')
-							nkey = nkey+'err'
-						# print(key, nkey)
-						reftbl.rename_column(key, nkey)
-		#	Narrow-band
-		elif 'n' in refmagkey:
-			incat = f'{outcat}/apass-{obj}.cat'
-			outcat = f'{outcat}/apass-{obj}.narrow.cat'
-			#	No narrow catalog
-			if outcat not in refcatlist:
-				#	No APASS catalog
-				if incat not in refcatlist:
-					querytbl_ = apass_query(obj, racent, decent, outcat, radius=radius)
-				else:
-					querytbl_ = ascii.read(incat)
-				#	APASS catalog --> med catalog
-				reftbl = phot_tbd.apass2med(incat, outcat)
-				refcat = outcat
-			else:
-				reftbl = ascii.read(outcat)
-				reftbl.rename_column('RA_ICRS', 'ra')
-				reftbl.rename_column('DE_ICRS', 'dec')
-				for key in reftbl.keys():
-					if 'mag' in key:
-						nkey = key.replace('mag', '')
-						if 'e_' in key:
-							nkey = nkey.replace('e_', '')
-							nkey = nkey+'err'
-						# print(key, nkey)
-						reftbl.rename_column(key, nkey)
-		else:
-			if outcat+'/apass-'+obj+'.cat' not in refcatlist:
-				querytbl = apass_query(obj, racent, decent, outcat, radius=radius)
-			else:
-				querytbl = ascii.read(outcat+'/apass-'+obj+'.cat')
-			reftbl, refcat = convert_apasstoBlaton(querytbl, obj)"""
-	#------------------------------------------------------------
-	#	2MASS for JHK-bands
-	elif refcatname.upper()	== '2MASS':
-		if outcat not in refcatlist:
+		#	2MASS for JHK-bands
+		elif refcatname.upper()	== '2MASS':
 			#	Query
 			querytbl = query_2mass(racent, decent, radius=radius)
 			#	Convert magnitude system to unified system
 			reftbl = convert_2masstoAB(querytbl)
 			reftbl.write(outcat, format='ascii.tab', overwrite=True)
-		else:
-			#	If exist, skip query
-			reftbl = ascii.read(outcat)
 	else:
-		print('There is no available reference catalog!')
+		#	If exist, skip query
+		print(f'Found {outcat}')
+		reftbl = ascii.read(outcat)
+
 	return reftbl
 #-------------------------------------------------------------------------#
 def query_sdss(radeg, dedeg, radius=1.0):
