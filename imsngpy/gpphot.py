@@ -4,6 +4,8 @@
 #%%
 #	Library
 #------------------------------------------------------------
+import time
+st = time.time()
 import os
 import sys
 sys.path.append('/home/paek/imsngpy')
@@ -22,6 +24,8 @@ from astropy.coordinates import SkyCoord
 from astropy.table import hstack
 #	Bottle Neck
 import bottleneck as bn
+delt = time.time()-st
+print(delt, 'sec')
 #============================================================
 #%%
 #	Path
@@ -120,6 +124,8 @@ else:
 #	Aperture steps for SNR curve
 apertures = peeing.value*np.linspace(0.25, 5, 32)
 apertures_input = ','.join([str(d) for d in apertures])
+delt = time.time()-st
+print(delt, 'sec')
 #------------------------------------------------------------
 #%%
 #	GROWTH CURVE
@@ -196,6 +202,8 @@ for n in range(len(apertures)):
 		gctbl[f'SNR'] = gctbl[f'FLUX_APER']/gctbl[f'FLUXERR_APER']
 	else:
 		gctbl[f'SNR_{n}'] = gctbl[f'FLUX_APER_{n}']/gctbl[f'FLUXERR_APER_{n}']
+delt = time.time()-st
+print(delt, 'sec')
 #------------------------------------------------------------
 #%%
 #	OPTIMIZED APERTURE FROM SNR CURVE
@@ -223,7 +231,9 @@ plt.ylabel('SNR', fontsize=14)
 plt.legend(fontsize=14, framealpha=0.0, loc='upper right')
 # plt.yscale('log')
 gcoutpng = f'{os.path.splitext(inim)[0]}.gc.png'
-plt.savefig(gcoutpng, dpi=500, overwrite=True)
+# plt.savefig(gcoutpng, dpi=500, overwrite=True)
+delt = time.time()-st
+print(delt, 'sec')
 #------------------------------------------------------------
 #%%
 #	APERTURE DICTIONARY
@@ -238,7 +248,7 @@ aper_dict = dict(
 	MAG_APER = dict(
 		size=aper_opt/pixscale.value,
 		errkey='MAGERR_APER',
-		suffix='AUTO',
+		suffix='APER',
 		comment='Best aperture diameter based on SNR curve [pix]',
 	),
 	MAG_APER_1 = dict(
@@ -356,7 +366,8 @@ indx_sel = np.where(
 	(rawtbl['CLASS_STAR']>0.9) &
 	(rawtbl['FLAGS']<=float(gphot_dict['flagcut'])) &
 	(rawtbl[aper_dict[magkey]['errkey']]<=float(gphot_dict['inmagerupper'])) &
-	(sep<fov/2*float(gphot_dict['photfraction']))
+	(sep<fov/2*0.9)
+	# (sep<(fov/2)*float(gphot_dict['photfraction']))
 )
 #	QUERY REFERENCE CATALOG
 seltbl = rawtbl[indx_sel]
@@ -369,13 +380,21 @@ reftbl = querybox(
 	radius=0.5,
 	refmagkey=''
 	)
+delt = time.time()-st
+print(delt, 'sec')
+#%%
 #	Space distribution
+'''
 plt.close('all')
-plt.plot(rawtbl['ALPHA_J2000'], rawtbl['DELTA_J2000'], ls='none', marker='.', alpha=0.125)
-plt.plot(seltbl['ALPHA_J2000'], seltbl['DELTA_J2000'], ls='none', marker='x', alpha=0.5)
-plt.plot(reftbl['ra'], reftbl['dec'], ls='none', marker='o', mfc='none', alpha=0.25)
+plt.figure(figsize=(10,10))
+plt.plot(rawtbl['ALPHA_J2000'], rawtbl['DELTA_J2000'], ls='none', marker='o', alpha=0.125, label=f'IMAGE ({len(rawtbl)})')
+plt.plot(seltbl['ALPHA_J2000'], seltbl['DELTA_J2000'], ls='none', marker='+', alpha=0.75, label=f'SELECTED ({len(seltbl)})')
+plt.plot(reftbl['ra'], reftbl['dec'], ls='none', marker='.', mfc='none', alpha=0.25, label=f'REFERENCE ({len(reftbl)})')
+
 plt.plot(c_cent.ra.value, c_cent.dec.value, ls='none', marker='x', ms=10, c='tomato', mfc='none', alpha=1)
-plt.show()
+plt.legend(fontsize=14, framealpha=1.0, loc='upper right')
+plt.show()'''
+#%%
 #	Matching catalog
 c_ref = SkyCoord(reftbl['ra'], reftbl['dec'], unit=u.deg)
 c = SkyCoord(seltbl['ALPHA_J2000'], seltbl['DELTA_J2000'], unit=u.deg)
@@ -396,12 +415,12 @@ mmtbl = mtbl[
 
 #	Roop for magnitude kinds
 #	e.g. ZP_APER
-inzpkey = [aper_dict[inmagkey]['suffix']]
+inzpkey = f"ZP_{aper_dict[inmagkey]['suffix']}"
+mmtbl[inzpkey] = mmtbl[filte]-mmtbl[inmagkey] 
 
-zparr = mmtbl[filte]-mmtbl[inmagkey]
-mmtbl[inzpkey] = zparr 
+# plt.plot(mmtbl[filte], mmtbl[inzpkey], marker='+', ls='none')
 
-plt.plot(mmtbl[filte], zparr, marker='+', ls='none')
+#	Valid elements
 indx_zp = np.where(
 	(~np.isnan(mmtbl[filte].mask)) &
 	(~np.isnan(mmtbl[inmagkey].mask))	
@@ -441,11 +460,12 @@ plt.title('Sigma clip test', fontsize=14)
 plt.grid('both', ls='--', color='silver', alpha=0.5)
 plt.show()
 '''
+#	Sigma-Clipping
 sigma=1.5
 iteration=5
 
 czparr = sigma_clip(
-	np.copy(zptbl['ZP_APER']),
+	np.copy(zptbl[inzpkey]),
 	sigma=sigma,
 	# maxiters=None,
 	# maxiters=3,
@@ -457,27 +477,65 @@ czparr = sigma_clip(
 
 zp = np.median(czparr.data[~czparr.mask])
 zper = np.std(czparr.data[~czparr.mask])
-
-#	ZP
+delt = time.time()-st
+print(delt, 'sec')
+#%%
+'''#	ZP
 plt.close()
-# plt.errorbar(mmtbl[filte], zparr, yerr=mmtbl[f'{filte}err'], marker='.', c='grey', ls='none', alpha=0.25)
-# plt.errorbar(zptbl[filte], zptbl['ZP_APER'], yerr=zptbl[f'{filte}err'], marker='.', c='silver', ls='none', alpha=0.25)
-plt.errorbar(zptbl[filte][~czparr.mask], zptbl['ZP_APER'][~czparr.mask], yerr=zptbl[f'{filte}err'][~czparr.mask], marker='.', c='dodgerblue', ls='none', alpha=0.5)
-plt.errorbar(zptbl[filte][czparr.mask], zptbl['ZP_APER'][czparr.mask], yerr=zptbl[f'{filte}err'][czparr.mask], marker='x', c='tomato', ls='none', alpha=0.25)
-plt.axhline(y=zp, ls='--')
-plt.axvline(x=float(gphot_dict['refmaglower']), ls='-', c='k', alpha=0.5)
-plt.axvline(x=float(gphot_dict['refmagupper']), ls='-', c='k', alpha=0.5)
+plt.figure(figsize=(9,6))
+#
+plt.errorbar(zptbl[filte][~czparr.mask], zptbl['ZP_APER'][~czparr.mask], yerr=zptbl[f'{filte}err'][~czparr.mask], mfc='none', marker='s', c='dodgerblue', ls='none', alpha=0.25, label=f'{len(np.where(czparr.mask==False)[0])} ({round(1e2*len(np.where(czparr.mask==False)[0])/len(zptbl), 1)}%)')
+plt.plot(zptbl[filte][czparr.mask], zptbl['ZP_APER'][czparr.mask], marker='x', c='tomato', ls='none', alpha=0.5, label=f'{len(np.where(czparr.mask==True)[0])} ({round(1e2*len(np.where(czparr.mask==True)[0])/len(zptbl), 1)}%)')
+plt.axhspan(zp-zper, zp+zper, alpha=0.125, color='dodgerblue', label=f'{round(zp, 3)}+/-{round(zper, 3)}')
+plt.axhline(y=zp, ls='--', c='b', alpha=0.5)
+
+plt.axvline(x=float(gphot_dict['refmaglower']), ls='--', c='k', alpha=0.5)
+plt.axvline(x=float(gphot_dict['refmagupper']), ls='--', c='k', alpha=0.5)
 # plt.xlim()
+plt.legend(loc='upper center', framealpha=0, fontsize=20)
 plt.ylim([zp-0.5, zp+0.5])
 plt.xlabel('Ref. mag [AB]', fontsize=20)
 plt.ylabel('ZP', fontsize=20)
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
+plt.grid('both', ls='--', color='silver', alpha=0.5)
+plt.tight_layout()
+'''
+#%%
+from astropy.visualization import (ZScaleInterval, MinMaxInterval, SqrtStretch,ImageNormalize)
+'''
+# Create interval object
+interval = ZScaleInterval()
+vmin, vmax = interval.get_limits(fits.getdata(inim))
 
-#	
+# Create an ImageNormalize object using a SqrtStretch object
+norm = ImageNormalize(vmin=vmin, vmax=vmax, stretch=SqrtStretch())
+
 plt.close()
-# plt.imshow(fits.getdata(inim))
-plt.scatter(rawtbl['X_IMAGE'], rawtbl['Y_IMAGE'], marker='.', color='grey', alpha=0.25)
-plt.scatter(zptbl['X_IMAGE'][~czparr.mask], zptbl['Y_IMAGE'][~czparr.mask], c=zptbl['ZP_APER'][~czparr.mask])
+plt.figure(figsize=(10,10))
+# transform=ax.get_transform('world')
+wcs = WCS(inim)
+ax = plt.subplot(projection=wcs)
+ax.imshow(fits.getdata(inim), origin='lower', cmap='gray', norm=norm)
+# plt.scatter(rawtbl['ALPHA_J2000'], rawtbl['DELTA_J2000'], marker='.', color='grey', alpha=0.25)
+
+vmin, vmax = MinMaxInterval().get_limits(zptbl[inzpkey][~czparr.mask])
+
+plt.scatter(zptbl['ALPHA_J2000'][~czparr.mask], zptbl['DELTA_J2000'][~czparr.mask], c=zptbl[inzpkey][~czparr.mask], transform=ax.get_transform('world'), alpha=0.25, vmin=vmin, vmax=vmax)
 # plt.scatter(mmtbl['X_IMAGE'], mmtbl['Y_IMAGE'], c=mmtbl['ZP_APER'])
-plt.scatter(zptbl['X_IMAGE'][czparr.mask], zptbl['Y_IMAGE'][czparr.mask], c='tomato', marker='x', alpha=0.5)
+plt.scatter(zptbl['ALPHA_J2000'][czparr.mask], zptbl['DELTA_J2000'][czparr.mask], c='tomato', marker='x', alpha=0.5, transform=ax.get_transform('world'),)
+plt.plot(c_cent.ra.value, c_cent.dec.value, ls='none', marker='+', ms=10, c='tomato', mfc='none', alpha=1, transform=ax.get_transform('world'))
+
 plt.colorbar()
-plt.show()
+# plt.show()
+xl, xr = plt.xlim()
+plt.xlim([xr, xl])
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
+plt.xlabel('RA [deg]', fontsize=20)
+plt.ylabel('Dec [deg]', fontsize=20)
+plt.tight_layout()'''
+# plt.savefig(f'{os.path.splitext(inim)[0]}.star.png', dpi=500, overwrite=True)
+delt = time.time()-st
+print(delt, 'sec')
+# %%
