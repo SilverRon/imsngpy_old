@@ -26,6 +26,8 @@ from astropy.table import hstack
 import bottleneck as bn
 delt = time.time()-st
 print(delt, 'sec')
+st = time.time()
+st_ = time.time()
 #============================================================
 #%%
 #	Path
@@ -68,9 +70,20 @@ else:
 # inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063001-R-60.fits'
 # inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063118-R-180.com.fits'
 inim = '/data3/paek/factory/test/phot/Calib-LOAO-NGC6946-20201112-022807-R-180.com.fits'
-#	Image info.
+#------------------------------------------------------------
+#	Image info
+#------------------------------------------------------------
 hdr = fits.getheader(inim)
+#	IMAGE PHYSICAL CENTER
+a = hdr['naxis1']/2.
+b = hdr['naxis2']/2.
+#	Small squre based on frac
+frac = 0.95
+a_ = a*np.sqrt(frac)
+b_ = b*np.sqrt(frac)
+obj = hdr['OBJECT']
 filte = hdr['FILTER']
+#
 if ('OBSERVAT' in hdr.keys()) & ('CCDNAME' in hdr.keys()):
 	obs = hdr['OBSERVAT']
 	ccd = hdr['CCDNAME']
@@ -128,28 +141,29 @@ delt = time.time()-st
 print(delt, 'sec')
 #------------------------------------------------------------
 #%%
-#	GROWTH CURVE
+#	SNR CURVE
 #------------------------------------------------------------
-prefix = 'growthcurve'
-path_param_gc = f'{path_config}/{prefix}.param'
-path_conv_gc = f'{path_config}/{prefix}.conv'
-path_nnw_gc = f'{path_config}/{prefix}.nnw'
-path_conf_gc = f'{path_config}/{prefix}.sex'
+st = time.time()
+prefix = 'snrcurve'
+path_param_sc = f'{path_config}/{prefix}.param'
+path_conv_sc = f'{path_config}/{prefix}.conv'
+path_nnw_sc = f'{path_config}/{prefix}.nnw'
+path_conf_sc = f'{path_config}/{prefix}.sex'
 #------------------------------------------------------------
-gccat = f'{os.path.splitext(inim)[0]}.gc.cat'
+sccat = f'{os.path.splitext(inim)[0]}.sc.cat'
 #	SE parameters
 param_insex = dict(
 	#------------------------------
 	#	CATALOG
 	#------------------------------
-	CATALOG_NAME = gccat,
+	CATALOG_NAME = sccat,
 	#------------------------------
 	#	CONFIG FILES
 	#------------------------------
-	CONF_NAME = path_conf_gc,
-	PARAMETERS_NAME = path_param_gc,
-	FILTER_NAME = path_conv_gc,    
-	STARNNW_NAME = path_nnw_gc,
+	CONF_NAME = path_conf_sc,
+	PARAMETERS_NAME = path_param_sc,
+	FILTER_NAME = path_conv_sc,    
+	STARNNW_NAME = path_nnw_sc,
 	#------------------------------
 	#	PHOTOMETRY
 	#------------------------------
@@ -180,64 +194,82 @@ param_insex = dict(
 	CHECKIMAGE_NAME = 'check.fits',
 )
 os.system(sexcom(inim, param_insex))
-gcrawtbl = ascii.read(gccat)
-#	IMAGE PHYSICAL CENTER
-a = hdr['naxis1']/2.
-b = hdr['naxis2']/2.
-#	Small squre based on frac
-frac = 0.95
-a_ = a*np.sqrt(frac)
-b_ = b*np.sqrt(frac)
+scrawtbl = ascii.read(sccat)
+delt = time.time()-st
+print(delt, 'sec')
+
 #	Conditions for growth-curve
 #	Point sources and nearby center
-gctbl = gcrawtbl[
-	(gcrawtbl['FLAGS']==0) &
-	(gcrawtbl['CLASS_STAR']>0.9) &
-	(gcrawtbl['X_IMAGE']>a-a_) & (gcrawtbl['X_IMAGE']<a+a_) &
-	(gcrawtbl['Y_IMAGE']>b-b_) & (gcrawtbl['Y_IMAGE']<b+b_)
+sctbl = scrawtbl[
+	(scrawtbl['FLAGS']==0) &
+	(scrawtbl['CLASS_STAR']>0.9) &
+	(scrawtbl['X_IMAGE']>a-a_) & (scrawtbl['X_IMAGE']<a+a_) &
+	(scrawtbl['Y_IMAGE']>b-b_) & (scrawtbl['Y_IMAGE']<b+b_)
 ]
-gctbl['APER_OPT'] = 0.0
+st = time.time()
+#	Generate SNR column
+sctbl['APER_OPT'] = 0.0
 for n in range(len(apertures)):
 	if n==0:
-		gctbl[f'SNR'] = gctbl[f'FLUX_APER']/gctbl[f'FLUXERR_APER']
+		sctbl[f'SNR'] = sctbl[f'FLUX_APER']/sctbl[f'FLUXERR_APER']
 	else:
-		gctbl[f'SNR_{n}'] = gctbl[f'FLUX_APER_{n}']/gctbl[f'FLUXERR_APER_{n}']
+		sctbl[f'SNR_{n}'] = sctbl[f'FLUX_APER_{n}']/sctbl[f'FLUXERR_APER_{n}']
+delt = time.time()-st
+print(delt, 'sec')
+#%%
+st = time.time()
+sctbl['APER_OPT'] = generate_best_aperture_with_snrcurve(sctbl, apertures, pixscale)
+aper_opt = np.median(sctbl['APER_OPT'])
+delt = time.time()-st
+print(delt, 'sec')
+#%%
+st = time.time()
+
+draw_snrcurve(
+	title = os.path.basename(inim),
+	scoutpng = f'{os.path.splitext(inim)[0]}.sc.png',
+	seeing=seeing,
+	aper_opt=aper_opt,
+	dpi=500,
+	)
 delt = time.time()-st
 print(delt, 'sec')
 #------------------------------------------------------------
 #%%
 #	OPTIMIZED APERTURE FROM SNR CURVE
 #------------------------------------------------------------
-indx_col = np.where('SNR'==np.array(gctbl.keys()))
-x=apertures*pixscale.value
-for raw in range(len(gctbl)):
-	y = np.array(list(gctbl[raw])[indx_col[0].item():])
-	y[np.isnan(y)] = 0.0
-	indx_peak = np.where(y==np.max(y))
-	if len(y)-1 in indx_peak:
-		x_opt=None
-	else:
-		x_opt=x[indx_peak].item()
-		plt.plot(x, y, color='silver', alpha=0.125)
-		plt.axvline(x=x_opt, ls='-', linewidth=0.5, color='dodgerblue', alpha=0.125)
-		gctbl['APER_OPT'][raw] = x_opt
-aper_opt = np.median(gctbl['APER_OPT'])	#	[arcsec]
-plt.axvline(x=aper_opt, ls='-', linewidth=2.0, color='tomato', alpha=0.5, label=f'OPT.APERTURE : {round(aper_opt, 3)}\"\n(SEEING*{round(aper_opt/seeing.value, 3)})')
-plt.axvline(x=seeing.value, ls='-', linewidth=2.0, color='gold', alpha=0.5, label=f'SEEING : {round(seeing.value, 3)} \"')
-plt.title(os.path.basename(inim), fontsize=14)
-plt.grid('both', ls='--', color='silver', alpha=0.5)
-plt.xlabel('Aperture Diameter [arcsec]', fontsize=14)
-plt.ylabel('SNR', fontsize=14)
-plt.legend(fontsize=14, framealpha=0.0, loc='upper right')
-# plt.yscale('log')
-gcoutpng = f'{os.path.splitext(inim)[0]}.gc.png'
-# plt.savefig(gcoutpng, dpi=500, overwrite=True)
-delt = time.time()-st
-print(delt, 'sec')
+# st = time.time()
+# indx_col = np.where('SNR'==np.array(sctbl.keys()))
+# x=apertures*pixscale.value
+# for raw in range(len(sctbl)):
+# 	y = np.array(list(sctbl[raw])[indx_col[0].item():])
+# 	y[np.isnan(y)] = 0.0
+# 	indx_peak = np.where(y==np.max(y))
+# 	if len(y)-1 in indx_peak:
+# 		x_opt=None
+# 	else:
+# 		x_opt=x[indx_peak].item()
+# 		plt.plot(x, y, color='silver', alpha=0.125)
+# 		plt.axvline(x=x_opt, ls='-', linewidth=0.5, color='dodgerblue', alpha=0.125)
+# 		sctbl['APER_OPT'][raw] = x_opt
+# aper_opt = np.median(sctbl['APER_OPT'])	#	[arcsec]
+# plt.axvline(x=aper_opt, ls='-', linewidth=2.0, color='tomato', alpha=0.5, label=f'OPT.APERTURE : {round(aper_opt, 3)}\"\n(SEEING*{round(aper_opt/seeing.value, 3)})')
+# plt.axvline(x=seeing.value, ls='-', linewidth=2.0, color='gold', alpha=0.5, label=f'SEEING : {round(seeing.value, 3)} \"')
+# plt.title(os.path.basename(inim), fontsize=14)
+# plt.grid('both', ls='--', color='silver', alpha=0.5)
+# plt.xlabel('Aperture Diameter [arcsec]', fontsize=14)
+# plt.ylabel('SNR', fontsize=14)
+# plt.legend(fontsize=14, framealpha=0.0, loc='upper right')
+# # plt.yscale('log')
+# scoutpng = f'{os.path.splitext(inim)[0]}.sc.png'
+# # plt.savefig(scoutpng, dpi=500, overwrite=True)
+# delt = time.time()-st
+# print(delt, 'sec')
 #------------------------------------------------------------
 #%%
 #	APERTURE DICTIONARY
 #------------------------------------------------------------
+st = time.time()
 aper_dict = dict(
 	MAG_AUTO = dict(
 		size=0.0,
@@ -344,7 +376,10 @@ param_insex = dict(
 )
 os.system(sexcom(inim, param_insex))
 rawtbl = ascii.read(outcat)
-
+delt = time.time()-st
+print(delt, 'sec')
+#%%
+st = time.time()
 n=1
 inmagkey = list(aper_dict.keys())[n]
 
@@ -359,41 +394,56 @@ c_cent = SkyCoord(raim, decim, unit=u.deg)
 from astropy.coordinates import SkyCoord
 # c_cent = SkyCoord(hdr['CRVAL1'], hdr['CRVAL2'], unit=u.deg)
 c_raw = SkyCoord(rawtbl['ALPHA_J2000'], rawtbl['DELTA_J2000'], unit=u.deg)
-
 sep = c_raw.separation(c_cent)
 #	Select 
-indx_sel = np.where(
-	(rawtbl['CLASS_STAR']>0.9) &
-	(rawtbl['FLAGS']<=float(gphot_dict['flagcut'])) &
-	(rawtbl[aper_dict[magkey]['errkey']]<=float(gphot_dict['inmagerupper'])) &
-	(sep<fov/2*0.9)
-	# (sep<(fov/2)*float(gphot_dict['photfraction']))
-)
+indx_sel, indxes = select_point_sources(
+	rawtbl=rawtbl,
+	errkey=aper_dict[magkey]['errkey'],
+	sep=sep,
+	classstarcut=0.9,
+	flagcut=float(gphot_dict['flagcut']),
+	magerrcut=float(gphot_dict['inmagerupper']),
+	sepcut=fov/2*0.9,
+	)
+#%%
+print(f"{'='*60}")
+print(f'ALL                  : {len(rawtbl)}')
+print(f"{'-'*60}")
+print(f'CLASS_STAR > {0.9}     : {len(indxes[0][0])} ({round(1e2*len(indxes[0][0])/len(rawtbl), 1)}%)')
+print(f"FLAGS <= {gphot_dict['flagcut']}           : {len(indxes[1][0])} ({round(1e2*len(indxes[1][0])/len(rawtbl), 1)}%)")
+print(f"{aper_dict[magkey]['errkey']} < {gphot_dict['inmagerupper']} : {len(indxes[2][0])} ({round(1e2*len(indxes[2][0])/len(rawtbl), 1)}%)")
+print(f"SEP < {round((fov/2*0.9).to(u.arcmin).value, 1)}'          : {len(indxes[3][0])} ({round(1e2*len(indxes[3][0])/len(rawtbl), 1)}%)")
+print(f"{'='*60}")
+print(f"TOTAL                : {len(indx_sel[0])} ({round(1e2*len(indx_sel[0])/len(rawtbl), 1)}%)")
+print(f"{'='*60}")
+#%%
 #	QUERY REFERENCE CATALOG
+st = time.time()
 seltbl = rawtbl[indx_sel]
 refcatname = gphot_dict['refcatname']
 reftbl = querybox(
 	refcatname=refcatname,
 	racent=c_cent.ra.value,
 	decent=c_cent.dec.value,
-	outcat=f'{os.path.dirname(inim)}/ref.ngc6946.{refcatname}.cat',
-	radius=0.5,
+	outcat=f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.cat',
+	radius=float(gphot_dict['refqueryradius']),
+	#	Broad-band  : ''
+	#	Median-band : 'med'
 	refmagkey=''
 	)
 delt = time.time()-st
-print(delt, 'sec')
+print(round(delt,1), 'sec')
 #%%
-#	Space distribution
-'''
-plt.close('all')
-plt.figure(figsize=(10,10))
-plt.plot(rawtbl['ALPHA_J2000'], rawtbl['DELTA_J2000'], ls='none', marker='o', alpha=0.125, label=f'IMAGE ({len(rawtbl)})')
-plt.plot(seltbl['ALPHA_J2000'], seltbl['DELTA_J2000'], ls='none', marker='+', alpha=0.75, label=f'SELECTED ({len(seltbl)})')
-plt.plot(reftbl['ra'], reftbl['dec'], ls='none', marker='.', mfc='none', alpha=0.25, label=f'REFERENCE ({len(reftbl)})')
 
-plt.plot(c_cent.ra.value, c_cent.dec.value, ls='none', marker='x', ms=10, c='tomato', mfc='none', alpha=1)
-plt.legend(fontsize=14, framealpha=1.0, loc='upper right')
-plt.show()'''
+draw_space_distribution(
+	outpng=f'{os.path.splitext(inim)[0]}.space.png',
+	c_cent=c_cent,
+	rawtbl=rawtbl,
+	seltbl=seltbl,
+	reftbl=reftbl,
+	dpi=500,
+	)
+
 #%%
 #	Matching catalog
 c_ref = SkyCoord(reftbl['ra'], reftbl['dec'], unit=u.deg)
@@ -401,32 +451,39 @@ c = SkyCoord(seltbl['ALPHA_J2000'], seltbl['DELTA_J2000'], unit=u.deg)
 #	REFERENCE CATALOG FILTERING
 #	Magnitude cut and error cut
 indx, sep, _ = c.match_to_catalog_sky(c_ref)
-
 mtbl = hstack([seltbl, reftbl[indx]])
 mtbl['sep'] = sep
-mtbl = mtbl[mtbl['sep']<seeing]
-mmtbl = mtbl[
-	(
-		(mtbl[filte]>float(gphot_dict['refmaglower'])) &
-		(mtbl[filte]<float(gphot_dict['refmagupper'])) &
-		(mtbl[f'{filte}err']<float(gphot_dict['refmagerupper']))
-	)
-	]
 
+indx_zp, indxes_zp = select4zp(
+	mtbl=mtbl,
+	filte=filte,
+	inmagkey=inmagkey,
+	sepcut=seeing/2,
+	refmagerrcut=float(gphot_dict['refmagerupper']),
+	refmaglowercut=float(gphot_dict['refmaglower']),
+	refmaguppercut=float(gphot_dict['refmagupper']),
+	)
+#%%
+print(f"{'='*60}")
+print(f'ALL                  : {len(mtbl)}')
+print(f"{'-'*60}")
+print(f'SEP > SEEING         : {len(indxes[0][0])} ({round(1e2*len(indxes_zp[0][0])/len(mtbl), 1)}%)')
+print(f"{filte}err < {gphot_dict['refmagerupper']}          : {len(indxes[1][0])} ({round(1e2*len(indxes_zp[1][0])/len(mtbl), 1)}%)")
+print(f"{filte} < {gphot_dict['refmaglower']}               : {len(indxes_zp[2][0])} ({round(1e2*len(indxes_zp[2][0])/len(mtbl), 1)}%)")
+print(f"{filte} > {gphot_dict['refmagupper']}               : {len(indxes_zp[3][0])} ({round(1e2*len(indxes_zp[3][0])/len(mtbl), 1)}%)")
+print(f"{gphot_dict['refmaglower']} < {filte} < {gphot_dict['refmagupper']}          : {len(indxes_zp[4][0])} ({round(1e2*len(indxes_zp[4][0])/len(mtbl), 1)}%)")
+print(f"{'-'*60}")
+print(f"Not masking {filte}        : {len(indxes_zp[5][0])} ({round(1e2*len(indxes_zp[5][0])/len(mtbl), 1)}%)")
+print(f"Not masking {inmagkey} : {len(indxes_zp[5][0])} ({round(1e2*len(indxes_zp[5][0])/len(mtbl), 1)}%)")
+print(f"{'='*60}")
+print(f"TOTAL                : {len(indx_zp[0])} ({round(1e2*len(indx_zp[0])/len(mtbl), 1)}%)")
+print(f"{'='*60}")
+#%%
 #	Roop for magnitude kinds
 #	e.g. ZP_APER
+zptbl = mtbl[indx_zp]
 inzpkey = f"ZP_{aper_dict[inmagkey]['suffix']}"
-mmtbl[inzpkey] = mmtbl[filte]-mmtbl[inmagkey] 
-
-# plt.plot(mmtbl[filte], mmtbl[inzpkey], marker='+', ls='none')
-
-#	Valid elements
-indx_zp = np.where(
-	(~np.isnan(mmtbl[filte].mask)) &
-	(~np.isnan(mmtbl[inmagkey].mask))	
-)
-
-zptbl = mmtbl[indx_zp]
+mtbl[inzpkey] = mtbl[filte]-mtbl[inmagkey] 
 
 '''
 plt.close()
@@ -479,6 +536,7 @@ zp = np.median(czparr.data[~czparr.mask])
 zper = np.std(czparr.data[~czparr.mask])
 delt = time.time()-st
 print(delt, 'sec')
+st = time.time()
 #%%
 '''#	ZP
 plt.close()
@@ -538,4 +596,5 @@ plt.tight_layout()'''
 # plt.savefig(f'{os.path.splitext(inim)[0]}.star.png', dpi=500, overwrite=True)
 delt = time.time()-st
 print(delt, 'sec')
+print(time.time()-st_)
 # %%

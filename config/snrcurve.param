@@ -20,14 +20,14 @@ MAG_APER(32)                 #Fixed aperture magnitude vector                   
 MAGERR_APER(32)              #RMS error vector for fixed aperture mag.                  [mag]
 FLUX_APER(32)                #Flux vector within fixed circular aperture(s)             [count]
 FLUXERR_APER(32)             #RMS error vector for aperture flux(es)                    [count]
-BACKGROUND               Background at centroid position                           [count]
-THRESHOLD                Detection threshold above background                      [count]
+# BACKGROUND               Background at centroid position                           [count]
+# THRESHOLD                Detection threshold above background                      [count]
 FLAGS                    Extraction flags                                         
-ELONGATION               A_IMAGE/B_IMAGE                                          
-ELLIPTICITY              1 - B_IMAGE/A_IMAGE                                      
+# ELONGATION               A_IMAGE/B_IMAGE                                          
+# ELLIPTICITY              1 - B_IMAGE/A_IMAGE                                      
 CLASS_STAR               S/G classifier output                                    
-FWHM_IMAGE               FWHM assuming a gaussian core                             [pixel]
-FWHM_WORLD               FWHM assuming a gaussian core                             [deg]
+# FWHM_IMAGE               FWHM assuming a gaussian core                             [pixel]
+# FWHM_WORLD               FWHM assuming a gaussian core                             [deg]
 #EXT_NUMBER               FITS extension number                                    
 #FLUX_ISO                 Isophotal flux                                            [count]
 #FLUXERR_ISO              RMS error for isophotal flux                              [count]
