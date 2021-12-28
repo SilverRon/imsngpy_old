@@ -188,3 +188,33 @@ def combine_name(imlist):
 	outim = f'{path_data}/Calib-{obs}-{obj}-{utdate}-{uttime}-{filte}-{exptime}.com.fits'
 	return outim
 #------------------------------------------------------------
+def subtraction_routine(inim, refim):
+	'''
+	obs = 'LOAO'
+	path_refim = '/data3/paek/factory/ref_frames/{}'.format(obs)
+	inim = '/data3/paek/factory/test/Calib-LOAO-NGC6946-20201213-014607-R-180-com.fits'
+
+	obj = 'NGC6946'
+	filte = 'R'
+	'''
+	# inseeing = fits.getheader(inim)['seeing']
+	# refseeing = fits.getheader(refim)['seeing']
+
+	# if inseeing > refseeing:
+	# 	images_to_align = [inim]
+	# 	ref_image = refim
+	# else:
+	# 	images_to_align = [refim]
+	# 	ref_image = inim
+	gregistering([refim], inim)
+	#	Registered reference image
+	grefim = '{}/{}'.format(os.path.dirname(inim), os.path.basename(outim_gregistering(refim)))
+	subim = hotpants(inim, grefim, iu=60000, tu=6000000000, tl=-100000)
+	ds9com = 'ds9 {} {} {}&'.format(inim, grefim, subim)
+	# os.system(ds9com)
+	return subim, ds9com
+#------------------------------------------------------------
+def scale_flux_zp(zp, zp_ref):
+	fref_f = 10.**(-0.4*(zp-zp_ref))
+	f_fref = 1./fref_f
+	return f_fref

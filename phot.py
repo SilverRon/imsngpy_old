@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from astropy import units as u
+from astropy.visualization import (ZScaleInterval, MinMaxInterval, SqrtStretch,ImageNormalize)
+from astropy.wcs import WCS
+from astropy.io import fits
 
 def sexcom(inim, param_input, dualmode=False):
 	'''
@@ -103,7 +106,7 @@ def generate_best_aperture_with_snrcurve(sctbl, apertures, pixscale,):
 			x_opt=None
 		else:
 			x_opt=x[indx_peak].item()
-			#	Plot consumes so much time
+			#	Plot consumes too much time
 			# plt.plot(x, y, color='silver', alpha=0.125)
 			# plt.axvline(x=x_opt, ls='-', linewidth=0.5, color='dodgerblue', alpha=0.125)
 			# sctbl['APER_OPT'][raw] = x_opt
@@ -176,14 +179,14 @@ def draw_space_distribution(outpng, c_cent, rawtbl, seltbl, reftbl, dpi=500):
 	plt.grid('both', ls='--', c='silver', alpha=0.5)
 	plt.savefig(outpng, overwrite=True, dpi=dpi)
 #------------------------------------------------------------
-def select4zp(mtbl, filte, inmagkey, sepcut, refmagerrcut, refmaglowercut, refmaguppercut):
+def select4zp(mtbl, filte, sepcut, refmagerrcut, inmagerrcut, refmaglowercut, refmaguppercut):
 	'''
 	'''
 	#	SEP
 	indx_sp = np.where(
 		(mtbl['sep']<sepcut)
 	)
-	#	MAG ERROR CUT
+	#	REF MAG ERROR CUT
 	indx_er = np.where(
 		(mtbl[f'{filte}err']<refmagerrcut)
 	)
@@ -204,10 +207,14 @@ def select4zp(mtbl, filte, inmagkey, sepcut, refmagerrcut, refmaglowercut, refma
 	indx_n0 = np.where(
 		(~np.isnan(mtbl[filte].mask))
 	)
-	#	NaN for MAG
+	'''#	NaN for MAG
 	indx_n1 = np.where(
 		(~np.isnan(mtbl[inmagkey].mask))	
-	)
+	)'''
+	'''#	MAG ERR
+	indx_iner = np.where(
+		(mtbl[errkey]<inmagerrcut)
+	)'''
 	#	All
 	indx_zp = np.where(
 		(mtbl['sep']<sepcut) &
@@ -215,7 +222,86 @@ def select4zp(mtbl, filte, inmagkey, sepcut, refmagerrcut, refmaglowercut, refma
 		(mtbl[filte]>refmaglowercut) &
 		(mtbl[filte]>refmaglowercut) &
 		(mtbl[filte]<refmaguppercut) &
-		(~np.isnan(mtbl[filte].mask)) &
-		(~np.isnan(mtbl[inmagkey].mask))
+		(~np.isnan(mtbl[filte].mask))
+		# (~np.isnan(mtbl[inmagkey].mask))
 	)
-	return indx_zp, (indx_sp, indx_er, indx_0, indx_1, indx_2, indx_n0, indx_1)
+	# return indx_zp, (indx_sp, indx_er, indx_0, indx_1, indx_2, indx_n0, indx_1)
+	return indx_zp, (indx_sp, indx_er, indx_0, indx_1, indx_2, indx_n0)
+
+# def draw_zpcal(outpng, zptbl, mtbl, filte, czparr, indxes_zp, inzpkey, refmaglowercut, refmaguppercut, dpi=500):
+def draw_zpcal(outpng, zptbl, filte, czparr, indxes_zp, inzpkey, refmaglowercut, refmaguppercut, dpi=500):
+	'''
+	
+	'''
+	zp = np.median(czparr.data[~czparr.mask])
+	zper = np.std(czparr.data[~czparr.mask])
+
+	plt.close()
+	plt.figure(figsize=(9,6))
+	#
+	plt.errorbar(zptbl[filte][~czparr.mask], zptbl[inzpkey][~czparr.mask], yerr=zptbl[f'{filte}err'][~czparr.mask], mfc='none', marker='s', c='dodgerblue', ls='none', alpha=0.25, label=f'{len(np.where(czparr.mask==False)[0])} ({round(1e2*len(np.where(czparr.mask==False)[0])/len(zptbl), 1)}%)')
+	plt.plot(zptbl[filte][czparr.mask], zptbl[inzpkey][czparr.mask], marker='x', c='tomato', ls='none', alpha=0.5, label=f'{len(np.where(czparr.mask==True)[0])} ({round(1e2*len(np.where(czparr.mask==True)[0])/len(zptbl), 1)}%)')
+	plt.axhspan(zp-zper, zp+zper, alpha=0.125, color='dodgerblue', label=f'{round(zp, 3)}+/-{round(zper, 3)}')
+	plt.axhline(y=zp, ls='--', c='b', alpha=0.5)
+	#
+	# plt.plot(mtbl[filte][indxes_zp[2]], mtbl[inzpkey][indxes_zp[2]], marker='.', c='grey', ls='none', alpha=0.5,)# label=f'{len(indxes_zp[2][0])}')
+	# plt.plot(mtbl[filte][indxes_zp[3]], mtbl[inzpkey][indxes_zp[3]], marker='.', c='grey', ls='none', alpha=0.5,)# label=f'{len(indxes_zp[3][0])}')
+
+	plt.axvline(x=refmaglowercut, ls='--', c='k', alpha=0.5)
+	plt.axvline(x=refmaguppercut, ls='--', c='k', alpha=0.5)
+	#	Setting
+	plt.legend(loc='upper center', framealpha=0, fontsize=20)
+	plt.xlim([refmaglowercut-1, refmaguppercut+1])
+	plt.ylim([zp-0.5, zp+0.5])
+	plt.xlabel('Ref. mag [AB]', fontsize=20)
+	plt.ylabel('ZP', fontsize=20)
+	plt.xticks(fontsize=14)
+	plt.yticks(fontsize=14)
+	plt.grid('both', ls='--', color='silver', alpha=0.5)
+	plt.tight_layout()
+	plt.savefig(outpng, dpi=dpi, overwrite=True)
+
+def draw_zp_space(inim, outpng, c_cent, inzpkey, zptbl, mask, dpi=200):
+	# Create interval object
+	interval = ZScaleInterval()
+	vmin, vmax = interval.get_limits(fits.getdata(inim))
+
+	# Create an ImageNormalize object using a SqrtStretch object
+	norm = ImageNormalize(vmin=vmin, vmax=vmax, stretch=SqrtStretch())
+
+	plt.close()
+	plt.figure(figsize=(10,10))
+	# transform=ax.get_transform('world')
+	wcs = WCS(inim)
+	ax = plt.subplot(projection=wcs)
+	ax.imshow(fits.getdata(inim), origin='lower', cmap='gray', norm=norm)
+
+	vmin, vmax = MinMaxInterval().get_limits(zptbl[inzpkey][~mask])
+
+	plt.scatter(zptbl['ALPHA_J2000'][~mask], zptbl['DELTA_J2000'][~mask], c=zptbl[inzpkey][~mask], transform=ax.get_transform('world'), alpha=0.25, vmin=vmin, vmax=vmax)
+	plt.colorbar()
+
+	plt.scatter(zptbl['ALPHA_J2000'][mask], zptbl['DELTA_J2000'][mask], c='tomato', marker='x', alpha=0.5, transform=ax.get_transform('world'),)
+	plt.plot(c_cent.ra.value, c_cent.dec.value, ls='none', marker='+', ms=10, c='tomato', mfc='none', alpha=1, transform=ax.get_transform('world'))
+
+	# plt.show()
+	xl, xr = plt.xlim()
+	plt.xlim([xr, xl])
+	plt.xticks(fontsize=20)
+	plt.yticks(fontsize=20)
+	plt.xlabel('RA [deg]', fontsize=24)
+	plt.ylabel('Dec [deg]', fontsize=24)
+	plt.title(f'{os.path.basename(inim)} ({inzpkey})', fontsize=14)
+	plt.tight_layout()
+
+	plt.savefig(outpng, dpi=dpi, overwrite=True)
+
+def calc_depth(N, zp, aperture, skysig):
+	'''
+	N sigma depth (limiting magnitude)
+	aper : diameter [pix]
+	'''
+	r = float(aperture)/2	#	Diameter --> Radius
+	braket = N*skysig*np.sqrt(np.pi*(r**2))
+	depth = float(zp)-2.5*np.log10(braket)
+	return depth

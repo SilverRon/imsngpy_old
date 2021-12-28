@@ -1,16 +1,27 @@
 import os
+import glob
+import sys
+import time
 import ccdproc
-from astropy.nddata import CCDData
+import numpy as np
+import warnings
+warnings.filterwarnings(action='ignore')
+#	IMSNGpy modules
+sys.path.append('/home/paek/imsngpy')
+from misc import *
+
 import matplotlib.pyplot as plt
 plt.rc('font', family='serif')
+#	Astropy
+from astropy.nddata import CCDData
 from astropy.io import fits
 from astropy import units as u
-import numpy as np
 from astropy.io import ascii
 from astroscrappy import detect_cosmics
-import time
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
+from astropy.time import Time
+
 
 def scaling_func(arr): return 1/np.ma.median(arr)
 
@@ -51,10 +62,11 @@ def master_bias(imlist):
 	for n, inim in enumerate(imlist): mbias.header[f'COMB{n}'] = inim
 	#	Save
 	dateobs = mbias.header['DATE-OBS'].split('T')[0].replace('-', '')
-	filename = f'{dateobs}-zero.fits'
-	mbias.header['FILENAME'] = filename
-	mbias.write(f'{os.path.dirname(inim)}/{dateobs}-zero.fits', overwrite=True)
-	return mbias
+	filename = f'{os.path.dirname(inim)}/{dateobs}-zero.fits'
+	mbias.header['FILENAME'] = os.path.basename(filename)
+	mbias.write(filename, overwrite=True)
+	print(f"Write {filename}")
+	return mbias, filename
 #------------------------------------------------------------
 def master_dark(imlist, mbias):
 	"""
@@ -72,18 +84,17 @@ def master_dark(imlist, mbias):
 	#	Save
 	exptime = int(mdark.header['EXPTIME'])
 	dateobs = mdark.header['DATE-OBS'].split('T')[0].replace('-', '')
-	filename = f'{exptime}-{dateobs}-dark.fits'
-	mdark.header['FILENAME'] = filename
-	mdark.write(f'{os.path.dirname(inim)}/{exptime}-{dateobs}-dark.fits', overwrite=True)
-	return mdark
+	filename = f'{os.path.dirname(inim)}/{exptime}-{dateobs}-dark.fits'
+	mdark.header['FILENAME'] = os.path.basename(filename)
+	mdark.write(filename, overwrite=True)
+	print(f"Write {filename}")
+	return mdark, filename
 #------------------------------------------------------------
 def master_flat(imlist, mbias, mdark, filte=''):
 	"""
 	"""
 	comment = f"""{'-'*60}\n#\t{filte} FLAT MASTER FRAME (<--{len(imlist)} frames)\n{'-'*60}"""
 	print(comment)
-
-
 	#	Combine
 	combiner = ccdproc.Combiner([subtract_bias_dark(inim, mbias, mdark) for inim in imlist], dtype=np.float32)
 	combiner.minmax_clipping()
@@ -97,10 +108,11 @@ def master_flat(imlist, mbias, mdark, filte=''):
 	for n, inim in enumerate(imlist): nmflat.header[f'COMB{n}'] = inim
 	#	Save
 	dateobs = nmflat.header['DATE-OBS'].split('T')[0].replace('-', '')
-	filename = f'{dateobs}-n{filte}.fits'
-	nmflat.header['FILENAME'] = filename
-	nmflat.write(f'{os.path.dirname(inim)}/{filename}', overwrite=True)
-	return nmflat
+	filename = f'{os.path.dirname(inim)}/{dateobs}-n{filte}.fits'
+	nmflat.header['FILENAME'] = os.path.basename(filename)
+	nmflat.write(filename, overwrite=True)
+	print(f"Write {filename}")
+	return nmflat, filename
 #------------------------------------------------------------
 def subtract_bias_dark(inim, mbias, mdark):
 	flat = CCDData(fits.getdata(inim), unit="adu", meta=fits.getheader(inim))
@@ -245,7 +257,6 @@ def cosmic_ray_removal(inim, outim, maskim, gain, rdnoise, seeing=3*u.arcsec, cl
 	print(f"Remove {ncr} cosmic-ray pixels [{round(time_delta, 1)} sec]")
 	print(f'\t{os.path.basename(inim)} --> {os.path.basename(outim)}')
 	print(f'\tMask : {os.path.basename(maskim)}')
-
 #------------------------------------------------------------
 def astrometry(inim, outim, pixscale=None, frac=None, ra=None, dec=None, radius=None, cpulimit=60):
 	'''
@@ -363,3 +374,119 @@ def astrometry_analysis(inim, incor, outpng, outdat):
 	ax2.grid('both', c='silver', ls='--', alpha=0.5)
 
 	plt.savefig(outpng, overwrite=True)
+#------------------------------------------------------------
+def get_nearest_bias(mftype, t_med, keyword, ccdkey, ccdval, keywords=None, fast_mode4mframe=True):
+	'''
+	mftype = 'zero'
+	keyword = f'{path_mframe}/{obs}/{mftype}/????????-{mftype}.fits'
+	keywords = [ccdkey.lower(), 'jd']
+	'''
+	if fast_mode4mframe == True:
+		mframelist = np.array(
+			[os.path.basename(inim) for inim in sorted(glob.glob(keyword))]
+			)
+		deltarr = np.array(
+			[np.abs(date2jd(inim.split('-')[-2]).jd-t_med) for inim in mframelist]
+		)
+		indx_nearest = np.where(deltarr == np.min(deltarr))
+		# mim = f"{path_mframe}/{obs}/{mftype}/{mframelist[indx_nearest].item()}"
+	else:
+		ic_bias = ImageFileCollection(
+			location=keyword,
+			keywords=keywords
+			)
+		ic_bias_avail = ic_bias.summary[
+			(ic_bias.summary['jd'].mask == False) &
+			(ic_bias.summary[ccdkey.lower()]==ccdval)
+			]
+		mframelist = ic_bias_avail['file']
+		deltarr = np.array(np.abs(ic_bias_avail['jd']-t_med))
+		indx_nearest = np.where(deltarr == np.min(deltarr))
+		# mim = f"{path_mframe}/{obs}/{mftype}/{mframelist[indx_nearest].item()}"
+	if len(indx_nearest[0])>1:
+		mim = f"{os.path.dirname(keyword)}/{mframelist[indx_nearest[0][0]].item()}"
+	else:
+		mim = f"{os.path.dirname(keyword)}/{mframelist[indx_nearest].item()}"
+	return mim
+#------------------------------------------------------------
+def get_nearest_dark(t_med, keyword, exptime, ccdkey, ccdval, keywords=None, fast_mode4mframe=True):
+	if fast_mode4mframe == True:
+		mframelist = np.array(
+			[os.path.basename(inim) for inim in sorted(glob.glob(keyword))]
+			)
+		deltarr = np.array(
+			[np.abs(date2jd(inim.split('-')[-2]).jd-t_med) for inim in mframelist]
+		)
+		indx_nearest = np.where(deltarr == np.min(deltarr))
+		exptimelist = np.array(
+			[float(inim.split('-')[0]) for inim in mframelist[indx_nearest]]
+			)
+		delexptime = np.abs(exptimelist-exptime)
+		#	EXPTIME
+		indx_et = np.where(
+			delexptime == np.min(delexptime)
+		)
+		mim = f"{os.path.dirname(keyword)}/{mframelist[indx_et].item()}"
+		nexptime = exptimelist[indx_et].item()
+	else:
+		ic_dark = ImageFileCollection(
+			location=os.path.dirname(keyword),
+			keywords=keywords
+			)
+		ic_dark_avail = ic_dark.summary[
+			(ic_dark.summary['jd'].mask == False) &
+			(ic_dark.summary[ccdkey.lower()]==ccdval)
+			]
+		#	After
+		deltarr = np.array(np.abs(ic_dark_avail['jd']-t_med))
+		indx_dark = np.where(deltarr==np.min(deltarr))
+		darkim = f"{path_mframe}/{obs}/{mftype}/{ic_dark_avail['file'][indx_dark].item()}"
+		nexptime = ic_dark_avail['exptime'][indx_dark].item()
+		if str(nexptime) not in  darkframe.keys():
+			darkframe[f'{int(nexptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
+			darkexptime.append(int(nexptime))
+		else:
+			print(f'No available dark frame')
+			pass
+		print(f'Borrow {os.path.basename(darkim)} (EXPTIME {nexptime} sec)')
+
+	return mim, nexptime
+#------------------------------------------------------------
+def get_nearest_flat(t_med, keyword, filte, ccdkey, ccdval, keywords=None, fast_mode4mframe=True):
+	'''
+	get_nearest_flat(
+	t_med,
+	keyword=f'{path_mframe}/{obs}/{mftype}',
+	filte=filte,
+	ccdkey=ccdkey,
+	ccdval=ccdval,
+	keywords=[ccdkey.lower(), 'imagetyp', 'jd', 'filter',],
+	fast_mode4mframe=True,
+	)
+	'''
+	if fast_mode4mframe == True:
+		mframelist = np.array(
+			[os.path.basename(inim) for inim in sorted(glob.glob(keyword))]
+			)
+		deltarr = np.array(
+			[np.abs(date2jd(inim.split('-')[-2]).jd-t_med) for inim in mframelist]
+		)
+		indx_nearest = np.where(deltarr == np.min(deltarr))
+	else:
+		ic_flat = ImageFileCollection(
+			location=os.path.dirname(keyword),
+			keywords=keywords
+			)
+		ic_flat_avail = ic_flat.summary[
+			(ic_flat.summary['jd'].mask == False) &
+			(ic_flat.summary[ccdkey.lower()]==ccdval) &
+			(ic_flat.summary['filter']==filte)
+			]
+		deltarr = np.array(np.abs(ic_flat_avail['jd']-t_med))
+		indx_nearest = np.where(deltarr==np.min(deltarr))
+
+	if len(indx_nearest[0])>1:
+		mim = f"{os.path.dirname(keyword)}/{mframelist[indx_nearest[0][0]].item()}"
+	else:
+		mim = f"{os.path.dirname(keyword)}/{mframelist[indx_nearest].item()}"
+	return mim

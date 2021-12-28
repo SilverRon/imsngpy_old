@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 #============================================================
 #	https://ps1images.stsci.edu/ps1image.html
 #	By Sophia Kim 2019.01.22. based on code PS1 suggests on the link above

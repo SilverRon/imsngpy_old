@@ -74,11 +74,12 @@ except:
 	ncore = 8
 """
 #	Test setting
-path_raw = '/data6/obsdata/LOAO/1994_1026'
-# path_raw = '/data6/obsdata/LOAO/1994_1003'
+# path_raw = '/data6/obsdata/LOAO/1994_1026'
+path_raw = '/data6/obsdata/LOAO/1994_1003'
 # path_raw = '/data6/obsdata/LOAO/1969_0119'
 # path_raw = '/data6/obsdata/LOAO/test'
 obs = 'LOAO'
+fast_mode4mframe = True
 ncore = 8
 #------------------------------------------------------------
 #	PATH
@@ -90,6 +91,7 @@ path_config = '/home/paek/imsngpy/config'
 path_log = '/home/paek/log'
 path_bkg = '/data6/bkgdata'
 path_table = '/home/paek/imsngpy/table'
+path_gppy = '/home/paek/imsngpy'
 #------------------------------------------------------------
 path_mframe = f'{path_factory}/master_frames'
 path_ref = f'{path_factory}/ref_frames/{obs.upper()}'
@@ -101,6 +103,7 @@ path_save = f'{path_bkg}/{obs.upper()}'
 ccddat = f'{path_table}/obs.dat'
 #------------------------------------------------------------
 #	Codes
+path_phot = f'{path_gppy}/imsngpy/gpphot.py'
 path_phot_sg = '/home/paek/qsopy/phot/gregoryphot_2021.py'
 path_phot_mp = '/home/paek/qsopy/phot/gregoryphot_mp_2021.py'
 path_phot_sub = '/home/paek/qsopy/phot/gregoryphot_sub_2021.py'
@@ -258,57 +261,46 @@ mframe = dict()
 #	BIAS
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tBIAS\n{'-'*60}""")
-
 if 'bias' in ic1.summary['imagetyp']:
 	biaslist = ic1.filter(imagetyp='bias').files
 	print(f"""{len(biaslist)} bias frames --> master bias""")
-	mframe['bias'] = master_bias(biaslist)
+	biasdata, biasim = master_bias(biaslist)
+	mframe['bias'] = biasdata
+	del biasdata
+	path_bias = f'{path_mframe}/{obs}/zero'
+	cpcom = f"cp {biasim} {path_bias}"
+	print(cpcom)
+	# os.system(cpcom)
 else:
 	print('No bias frame. Borrow from previous data.')
 	mftype = 'zero'
-	ic_bias = ImageFileCollection(
-		location=f'{path_mframe}/{obs}/{mftype}',
-		keywords=[
-			ccdkey.lower(),
-			# 'date-obs',
-			# 'imagetyp',
-			'jd',
-			# 'mjd',
-		]
+	biasim = get_nearest_bias(
+		mftype=mftype,
+		t_med=t_med,
+		ccdkey=ccdkey,
+		ccdval=ccdval,
+		keyword=f'{path_mframe}/{obs}/{mftype}/????????-{mftype}.fits',
+		keywords=[ccdkey.lower(), 'jd'],
+		fast_mode4mframe=True,
 		)
-	ic_bias_avail = ic_bias.summary[
-		(ic_bias.summary['jd'].mask == False) &
-		(ic_bias.summary[ccdkey.lower()]==ccdval)
-		]
-	deltarr = np.array(np.abs(ic_bias_avail['jd']-t_med))
-	indx_bias = np.where(deltarr == np.min(deltarr))
-	biasim = f"{path_mframe}/{obs}/{mftype}/{ic_bias_avail['file'][indx_bias].item()}"
 	print(f'Borrow {os.path.basename(biasim)}')
 	mframe['bias'] = CCDData(fits.getdata(biasim), unit="adu", meta=fits.getheader(biasim))
-	del ic_bias_avail
-	del mftype
-	del deltarr
-	del indx_bias
-	del biasim
-#------------------------------------------------------------
-#%%
-#	DARK
-#------------------------------------------------------------
-print(f"""{'-'*60}\n#\tDARK\n{'-'*60}""")
 
-darkframe = dict()
-# darklist = ic1.filter(imagetyp='dark').files
-# if len(darklist) > 0:
-if 'dark' in ic1.summary['imagetyp']:
-	darkexptime = np.array(list(set(ic1.filter(imagetyp='dark').summary['exptime'])))
-	for exptime in darkexptime:
-		darkframe[f'{int(exptime)}'] = master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
-else:
-	print('No dark frame. Borrow from previous data.')
-	mftype = 'dark'
-	darkexptime = []
-	for exptime in set(ic1.filter(imagetyp='object').summary['exptime']):
-		ic_dark = ImageFileCollection(
+
+	print(f"Save {biasim} @")
+	'''
+	mftype = 'zero'
+	if fast_mode4mframe == True:
+		biaslist = np.array(
+			[os.path.basename(inim) for inim in sorted(glob.glob(f'{path_mframe}/{obs}/{mftype}/????????-{mftype}.fits'))]
+			)
+		deltarr = np.array(
+			[np.abs(date2jd(inim.split('-')[0]).jd-t_med) for inim in biaslist]
+		)
+		indx_bias = np.where(deltarr == np.min(deltarr))
+		biasim = f"{path_mframe}/{obs}/{mftype}/{biaslist[indx_bias].item()}"
+	else:
+		ic_bias = ImageFileCollection(
 			location=f'{path_mframe}/{obs}/{mftype}',
 			keywords=[
 				ccdkey.lower(),
@@ -316,39 +308,66 @@ else:
 				# 'imagetyp',
 				'jd',
 				# 'mjd',
-				'exptime',
 			]
 			)
-		ic_dark_avail = ic_dark.summary[
-			(ic_dark.summary['jd'].mask == False) &
-			(ic_dark.summary[ccdkey.lower()]==ccdval)
+		ic_bias_avail = ic_bias.summary[
+			(ic_bias.summary['jd'].mask == False) &
+			(ic_bias.summary[ccdkey.lower()]==ccdval)
 			]
-		#	Before
-		# delexpt = np.array(np.abs(ic_dark_avail['exptime']-exptime))
-		# indx_darkexpt = np.where(delexpt == np.min(delexpt))
-		# ic_dark_darkexpt = ic_dark_avail[indx_darkexpt]
-		# deltarr = np.array(np.abs(ic_dark_darkexpt['jd']-t_med))
-		# indx_darkexpt = np.where(delexpt == np.min(delexpt))
-		#	After
-		deltarr = np.array(np.abs(ic_dark_avail['jd']-t_med))
-		indx_dark = np.where(deltarr==np.min(deltarr))
-		darkim = f"{path_mframe}/{obs}/{mftype}/{ic_dark_avail['file'][indx_dark].item()}"
-		nexptime = ic_dark_avail['exptime'][indx_dark].item()
-		print(f'Borrow {os.path.basename(darkim)} (EXPTIME {nexptime} sec)')
-		if str(nexptime) not in  darkframe.keys():
+		biaslist = ic_bias_avail['file']
+		deltarr = np.array(np.abs(ic_bias_avail['jd']-t_med))
+		indx_bias = np.where(deltarr == np.min(deltarr))
+		biasim = f"{path_mframe}/{obs}/{mftype}/{biaslist[indx_bias].item()}"
+		del ic_bias_avail
+	#	Delete variables
+	del mftype
+	del deltarr
+	del indx_bias
+	del biasim'''
+
+#------------------------------------------------------------
+#%%
+#	DARK
+#------------------------------------------------------------
+print(f"""{'-'*60}\n#\tDARK\n{'-'*60}""")
+
+darkframe = dict()
+if 'dark' in ic1.summary['imagetyp']:
+	darkexptime = np.array(list(set(ic1.filter(imagetyp='dark').summary['exptime'])))
+	for exptime in darkexptime:
+		darkdata, darkim = master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
+		# darkframe[f'{int(exptime)}'] = master_dark(ic1.filter(imagetyp='dark', exptime=exptime).files, mbias=mframe['bias'])
+		darkframe[f'{int(exptime)}'] = darkdata
+		del darkdata
+		path_dark = f'{path_mframe}/{obs}/dark'
+		cpcom = f"cp {darkim} {path_dark}"
+		print(cpcom)
+		# os.system(cpcom)
+else:
+	print('No dark frame. Borrow from previous data.')
+	mftype = 'dark'
+	darkexptime = []
+	for exptime in set(ic1.filter(imagetyp='object').summary['exptime']):
+		mftype = 'dark'
+		darkim, nexptime = get_nearest_dark(
+			t_med=t_med,
+			keyword=f'{path_mframe}/{obs}/{mftype}/*-????????-{mftype}.fits',
+			exptime=exptime,
+			ccdkey=ccdkey,
+			ccdval=ccdval,
+			keywords=[ccdkey.lower(), 'jd', 'exptime'],
+			fast_mode4mframe=True,
+			)
+		print(f'Borrow {os.path.basename(darkim)}')
+		# darkframe[f'{int(nexptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
+
+		if str(nexptime) not in darkframe.keys():
 			darkframe[f'{int(nexptime)}'] = CCDData(fits.getdata(darkim), unit="adu", meta=fits.getheader(darkim))
 			darkexptime.append(int(nexptime))
 		else:
 			print(f'No available dark frame')
 			pass
 		darkexptime = np.array(darkexptime)
-		del ic_dark
-		del ic_dark_avail
-		# del delexpt
-		# del indx_darkexpt
-		del deltarr
-		del indx_dark
-		del darkim
 
 mframe['dark'] = darkframe
 del darkframe
@@ -378,38 +397,32 @@ if 'flat' in ic1.summary['imagetyp']:
 	mdark = mframe['dark'][str(int(darkexptime[indx_mindark].item()))]
 	for filte in filterlist:
 		# print(filte)
-		flatframe[filte] = master_flat(ic1.filter(imagetyp='flat', filter=filte).files, mbias=mframe['bias'], mdark=mdark, filte=filte)
+		flatdata, flatim = master_flat(ic1.filter(imagetyp='flat', filter=filte).files, mbias=mframe['bias'], mdark=mdark, filte=filte)
+		# flatframe[filte] = master_flat(ic1.filter(imagetyp='flat', filter=filte).files, mbias=mframe['bias'], mdark=mdark, filte=filte)
+		flatframe[filte] = flatdata
+		path_flat = f'{path_mframe}/{obs}/flat'
+		cpcom = f"cp {flatim} {path_flat}"
+		print(cpcom)
+		# os.system(cpcom)
+		del flatdata
 	del mdark
 else:
 	print('No Flat frame. Borrow from previous data.')
 	mftype = 'flat'
 	for filte in set(ic1.filter(imagetyp='object').summary['filter']):
-		ic_flat = ImageFileCollection(
-			location=f'{path_mframe}/{obs}/{mftype}',
-			keywords=[
-				ccdkey.lower(),
-				# 'date-obs',
-				'imagetyp',
-				'jd',
-				# 'mjd',
-				'filter',
-			]
+
+		flatim = get_nearest_flat(
+			t_med,
+			keyword=f'{path_mframe}/{obs}/{mftype}/????????-n{filte}.fits',
+			filte=filte,
+			ccdkey=ccdkey,
+			ccdval=ccdval,
+			keywords=[ccdkey.lower(), 'imagetyp', 'jd', 'filter',],
+			fast_mode4mframe=True,
 			)
-		ic_flat_avail = ic_flat.summary[
-			(ic_flat.summary['jd'].mask == False) &
-			(ic_flat.summary[ccdkey.lower()]==ccdval) &
-			(ic_flat.summary['filter']==filte)
-			]
-		deltarr = np.array(np.abs(ic_flat_avail['jd']-t_med))
-		indx_flat = np.where(deltarr==np.min(deltarr))
-		flatim = f"{path_mframe}/{obs}/{mftype}/{ic_flat_avail['file'][indx_flat].item()}"
+
 		print(f'Borrow {os.path.basename(flatim)}')
 		flatframe[filte] = CCDData(fits.getdata(flatim), unit="adu", meta=fits.getheader(flatim))
-		del ic_flat
-		del ic_flat_avail
-		del deltarr
-		del indx_flat
-		del flatim
 
 mframe['flat'] = flatframe
 del flatframe
@@ -688,7 +701,7 @@ for i, inim in enumerate(omtbl['now']):
 del tmpim
 for key in omtbl.keys(): omtbl[key] = omtbl[key].astype(strtype)
 #------------------------------------------------------------
-# %%
+#%%
 #	File name change
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tFILENAME CHANGE to IMSNG FORMAT\n{'-'*60}""")
@@ -696,12 +709,36 @@ for i, inim in enumerate(omtbl['now']):
 	newim = f"{omtbl['final'][i]}"
 	com = f'cp {inim} {newim}'
 	os.system(com)
-	print(f'{i} {os.path.basename(inim)} --> {os.path.basename(newim)}')
+	print(f'[{i}] {os.path.basename(inim)} --> {os.path.basename(newim)}')
 	fits.setval(newim, keyword='IMNAME', value=os.path.basename(newim), comment='Formatted file name by gpPy process')
 
 ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*', glob_exclude='*mask*')
-#------------------------------------------------------------
+#%%
+times = []
+ncores = np.arange(1, 8+1, 1)
+for ncore in ncores:
+	st = time.time()
+	photcom = f"python {path_phot} '{path_data}/Calib-*0.fits' {ncore}"
+	print(photcom)
+	os.system(photcom)
+	times.append(time.time()-st)
+times = np.array(times)
+#%%
+plt.close('all')
+plt.plot(
+	ncores, times,
+	ls='--', marker='s',
+	c='grey', mec='k', mfc='none',
+)
+plt.xlabel('# of cores', fontsize=20)
+plt.ylabel('Time [sec]', fontsize=20)
+plt.grid('both', ls='--', c='silver', alpha=0.5)
+plt.tight_layout()
+# plt.yscale('log')
 # %%
+
+'''
+#------------------------------------------------------------
 #	IMAGE COMBINE
 #------------------------------------------------------------
 print(f"""{'='*60}\n#\tIMAGE COMBINE\n{'='*60}""")
@@ -779,4 +816,4 @@ if __name__ == '__main__':
 					repeat(5),
 			)
 		)
-		print('DONE')
+		print('DONE')'''

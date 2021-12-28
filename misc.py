@@ -7,6 +7,7 @@ from phot import *
 import numpy as np
 from astropy.io import ascii
 from astropy import units as u
+from astropy.time import Time
 
 def slack_bot(token, channel, text):
 	response = requests.post("https://slack.com/api/chat.postMessage",
@@ -164,3 +165,11 @@ def identify_ccdinfo(ic0, obs, ccdtbl):
 #------------------------------------------------------------
 def sqsum(a, b):
 	return np.sqrt(a**2.+b**2.)
+#------------------------------------------------------------
+def date2jd(date):
+	'''
+	date = '20211026'
+	--> jd value
+	'''
+	t_isot = Time(f"{date[:4]}-{date[4:6]}-{date[6:8]}T00:00:00", format='isot')
+	return t_isot
