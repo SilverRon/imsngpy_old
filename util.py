@@ -1,8 +1,14 @@
+#	Library
 import os
+import glob
+import numpy as np
+import ccdproc
+import astroalign as aa
+#------------------------------------------------------------
 from astropy.time import Time
 from astropy.io import fits
-import numpy as np
-import astroalign as aa
+from astropy.nddata import CCDData
+from astropy.io import fits
 from astropy.nddata import CCDData
 #------------------------------------------------------------
 def scaling_func(arr): return 1/np.ma.median(arr)
@@ -33,7 +39,6 @@ def align_astroalign(srcim, tgtim, zero=False):
 	'''
 	print(f'Align {os.path.basename(srcim)} to {os.path.basename(tgtim)}')
 	tdata, thdr = fits.getdata(tgtim, header=True)
-	tzero = np.median(tdata[~np.isnan(tdata)].flatten())
 
 	#	Registered image
 	rdata, footprint = aa.register(
@@ -42,6 +47,7 @@ def align_astroalign(srcim, tgtim, zero=False):
 		fill_value=np.NaN,
 		)
 	if zero==True:
+		tzero = np.median(tdata[~np.isnan(tdata)].flatten())
 		rzero = np.median(rdata[~np.isnan(rdata)].flatten())
 		zero_offset = tzero-rzero
 		print(f'\t--> (Aligned image) = {os.path.basename(srcim)} - ({round(zero_offset, 3)})')
@@ -50,10 +56,6 @@ def align_astroalign(srcim, tgtim, zero=False):
 		print(f'\t--> Skip scaling with zero')
 	return CCDData(rdata, unit='adu', header=fits.getheader(srcim))
 #------------------------------------------------------------
-from astropy.io import fits
-from astropy.nddata import CCDData
-import ccdproc
-
 def imcombine_ccddata(aligned_imlist, fluxscale=False, zpkey=None, nref=None, imlist=None,):
 	"""
 	"""
@@ -103,7 +105,7 @@ def imcombine_ccddata(aligned_imlist, fluxscale=False, zpkey=None, nref=None, im
 	# comdata.write(comim, overwrite=True)
 	fits.writeto(comim, comdata.data, header=comdata.meta, overwrite=True)
 	print(f'==> {os.path.basename(comim)}')
-	# return comdata
+	return comim
 #------------------------------------------------------------
 #	Alignment
 def gregistering(imlist, refim):
@@ -208,33 +210,44 @@ def combine_name(imlist):
 	outim = f'{path_data}/Calib-{obs}-{obj}-{utdate}-{uttime}-{filte}-{exptime}.com.fits'
 	return outim
 #------------------------------------------------------------
-def subtraction_routine(inim, refim):
-	'''
-	obs = 'LOAO'
-	path_refim = '/data3/paek/factory/ref_frames/{}'.format(obs)
-	inim = '/data3/paek/factory/test/Calib-LOAO-NGC6946-20201213-014607-R-180-com.fits'
-
-	obj = 'NGC6946'
-	filte = 'R'
-	'''
-	# inseeing = fits.getheader(inim)['seeing']
-	# refseeing = fits.getheader(refim)['seeing']
-
-	# if inseeing > refseeing:
-	# 	images_to_align = [inim]
-	# 	ref_image = refim
-	# else:
-	# 	images_to_align = [refim]
-	# 	ref_image = inim
-	gregistering([refim], inim)
-	#	Registered reference image
-	grefim = '{}/{}'.format(os.path.dirname(inim), os.path.basename(outim_gregistering(refim)))
-	subim = hotpants(inim, grefim, iu=60000, tu=6000000000, tl=-100000)
-	ds9com = 'ds9 {} {} {}&'.format(inim, grefim, subim)
-	# os.system(ds9com)
-	return subim, ds9com
-#------------------------------------------------------------
 def scale_flux_zp(zp, zp_ref):
 	fref_f = 10.**(-0.4*(zp-zp_ref))
 	f_fref = 1./fref_f
 	return f_fref
+#------------------------------------------------------------
+def hotpants(inim, refim, outim, outconvim, iu=60000, tu=6000000000, tl=-100000):
+	'''
+	'''
+	com = f"hotpants -c t -n i -iu {iu} -tu {tu} -tl {tl} -v 0 -inim {inim} -tmplim {refim} -outim {outim} -oci {outconvim}"
+	return com
+#------------------------------------------------------------
+def subtraction_routine(tgtim, path_ref):
+	'''
+	'''
+	srchdr = fits.getheader(tgtim)
+	obj, filte = srchdr['OBJECT'], srchdr['FILTER']
+	rimlist = glob.glob(f"{path_ref}/Ref*{obj}*{filte}*.fits")
+	if len(rimlist)>0:
+		srcim = rimlist[0]
+		#	Alignment
+		# srcim = f"{os.path.splitext(refim)[0]}_aligned{os.path.splitext(refim)[1]}"
+		srcdata = align_astroalign(
+			srcim=srcim,
+			tgtim=tgtim,
+			zero=False
+			)
+		refim = f"{os.path.dirname(tgtim)}/aa{os.path.basename(srcim)}"
+		fits.writeto(refim, srcdata.data, header=srcdata.meta, overwrite=True)
+		#
+		outim=f"{os.path.dirname(tgtim)}/hd{os.path.basename(tgtim)}"
+		outconvim=f"{os.path.dirname(tgtim)}/hc{os.path.basename(tgtim)}"
+		subcom = hotpants(
+			inim=tgtim,
+			refim=refim,
+			outim=outim,
+			outconvim=outconvim,
+			iu=60000,
+			tu=6000000000,
+			tl=-100000,
+			)
+		os.system(subcom)

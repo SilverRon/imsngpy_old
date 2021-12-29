@@ -94,6 +94,7 @@ path_conf = f'{path_config}/{prefix_gp}.sex'
 #------------------------------------------------------------
 try:
 	imkey = sys.argv[1]
+	# imkey = '/data3/paek/factory/loao/test_fast/Calib-*0.fits'
 	print(f'IMKEY  : {imkey}')
 except:
 	# imkey = gphot_dict['imkey']
@@ -424,7 +425,8 @@ def routine(inim,):
 		refcatname=refcatname,
 		racent=c_cent.ra.value,
 		decent=c_cent.dec.value,
-		outcat=f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.cat',
+		# outcat=f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.cat',
+		outcat=f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.ecsv',
 		radius=float(gphot_dict['refqueryradius']),
 		#	Broad-band  : ''
 		#	Median-band : 'med'
@@ -677,7 +679,8 @@ for inim in imlist: print(os.path.basename(inim))
 print('-'*60)
 print(f'{len(objlist)} OBJECT(s)', end=' ')
 for obj in objlist: print(obj, end=',')
-print('\n-'*60)
+print()
+print('-'*60)
 
 if len(objlist) > 1:
 	preimlist = sorted(

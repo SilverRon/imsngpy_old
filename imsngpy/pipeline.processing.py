@@ -13,6 +13,7 @@ import numpy as np
 import warnings
 warnings.filterwarnings(action='ignore')
 import time
+start_localtime = time.strftime('%Y-%m-%d %H:%M:%S (%Z)', time.localtime())
 import sys
 sys.path.append('/home/paek/imsngpy')
 #	IMSNGpy modules
@@ -22,7 +23,6 @@ from misc import *
 from phot import *
 from util import *
 #
-start_localtime = time.strftime('%Y-%m-%d %H:%M:%S (%Z)', time.localtime())
 #	Astropy
 from astropy.io import ascii
 from astropy.io import fits
@@ -77,7 +77,8 @@ except:
 # path_raw = '/data6/obsdata/LOAO/1994_1026'
 # path_raw = '/data6/obsdata/LOAO/1994_1003'
 # path_raw = '/data6/obsdata/LOAO/1969_0119'
-path_raw = '/data6/obsdata/LOAO/test'
+# path_raw = '/data6/obsdata/LOAO/test'
+path_raw = '/data6/obsdata/LOAO/test_fast'
 obs = 'LOAO'
 fast_mode4mframe = True
 ncore = 8
@@ -760,6 +761,7 @@ for obj in set(ic_cal.summary['object']):
 #------------------------------------------------------------
 # %%
 print(f"""{'-'*60}\n#\tALIGN IMAGES AND COMBINE\n{'-'*60}""")
+cimlist = []
 for i in range(len(comimlist)):
 	#	Alignment
 	##	Target image
@@ -771,14 +773,52 @@ for i in range(len(comimlist)):
 	#	Combine
 	aligned_imlist = [CCDData(fits.getdata(tgtim), unit='adu', header=fits.getheader(tgtim))]
 	for srcim in srcimlist: aligned_imlist.append(align_astroalign(srcim, tgtim, zero=False))
-	imcombine_ccddata(aligned_imlist, fluxscale=True, zpkey='ZP', nref=0, imlist=None,)
+	comim = imcombine_ccddata(aligned_imlist, fluxscale=True, zpkey='ZP', nref=0, imlist=None,)
+	cimlist.append(comim)
 #------------------------------------------------------------
 # %%
-#	Photometry
+#	Photometry for combined image
 #------------------------------------------------------------
 photcom = f"python {path_phot} '{path_data}/Calib-*com.fits' {ncore}"
 print(photcom)
 os.system(photcom)
+#------------------------------------------------------------
+# %%
+#	Subtraction
+#------------------------------------------------------------
+for tgtim in cimlist:
+	subtraction_routine(tgtim, path_ref)
+
+'''
+srchdr = fits.getheader(tgtim)
+obj, filte = srchdr['OBJECT'], srchdr['FILTER']
+rimlist = glob.glob(f"{path_ref}/Ref*{obj}*{filte}*.fits")
+if len(rimlist)>0:
+	srcim = rimlist[0]
+	#	Alignment
+	# srcim = f"{os.path.splitext(refim)[0]}_aligned{os.path.splitext(refim)[1]}"
+	srcdata = align_astroalign(
+		srcim=srcim,
+		tgtim=tgtim,
+		zero=False
+		)
+	refim = f"{os.path.dirname(tgtim)}/aa{os.path.basename(srcim)}"
+	fits.writeto(refim, srcdata.data, header=srcdata.meta, overwrite=True)
+	#
+	outim=f"{os.path.dirname(tgtim)}/hd{os.path.basename(tgtim)}"
+	outconvim=f"{os.path.dirname(tgtim)}/hc{os.path.basename(tgtim)}"
+	subcom = hotpants(
+		inim=tgtim,
+		refim=refim,
+		outim=outim,
+		outconvim=outconvim,
+		iu=60000,
+		tu=6000000000,
+		tl=-100000,
+		)
+	os.system(subcom)'''
+
+
 #%%
 '''
 #------------------------------------------------------------

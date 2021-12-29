@@ -155,28 +155,32 @@ def querybox(refcatname, racent, decent, outcat, radius=0.5, refmagkey=''):
 			querytbl = query_ps1(racent, decent, radius=radius)
 			#	Convert magnitude system to unified system
 			reftbl = convert_ps1toTonry(querytbl)
-			reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			# reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			reftbl.write(outcat, overwrite=True)
 		#	SDSS
 		elif refcatname.upper()	== 'SDSS':
 			#	Query
 			querytbl = query_sdss(racent, decent, radius=radius)
 			#	Convert magnitude system to unified system
 			reftbl = convert_sdsstoBlaton(querytbl)
-			reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			# reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			reftbl.write(outcat, overwrite=True)
 		#	APASS
 		elif refcatname.upper() == 'APASS':
 			#	Query
 			querytbl = query_apass(racent, decent, radius=radius)
 			#	Convert magnitude system to unified system
 			reftbl = convert_apasstoBlatonAndLupton(querytbl)
-			reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			# reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			reftbl.write(outcat, overwrite=True)
 		#	2MASS for JHK-bands
 		elif refcatname.upper()	== '2MASS':
 			#	Query
 			querytbl = query_2mass(racent, decent, radius=radius)
 			#	Convert magnitude system to unified system
 			reftbl = convert_2masstoAB(querytbl)
-			reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			# reftbl.write(outcat, format='ascii.tab', overwrite=True)
+			reftbl.write(outcat, overwrite=True)
 	else:
 		#	If exist, skip query
 		print(f'Found {outcat}')
