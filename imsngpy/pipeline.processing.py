@@ -75,9 +75,9 @@ except:
 """
 #	Test setting
 # path_raw = '/data6/obsdata/LOAO/1994_1026'
-path_raw = '/data6/obsdata/LOAO/1994_1003'
+# path_raw = '/data6/obsdata/LOAO/1994_1003'
 # path_raw = '/data6/obsdata/LOAO/1969_0119'
-# path_raw = '/data6/obsdata/LOAO/test'
+path_raw = '/data6/obsdata/LOAO/test'
 obs = 'LOAO'
 fast_mode4mframe = True
 ncore = 8
@@ -285,9 +285,6 @@ else:
 		)
 	print(f'Borrow {os.path.basename(biasim)}')
 	mframe['bias'] = CCDData(fits.getdata(biasim), unit="adu", meta=fits.getheader(biasim))
-
-
-	print(f"Save {biasim} @")
 	'''
 	mftype = 'zero'
 	if fast_mode4mframe == True:
@@ -713,30 +710,76 @@ for i, inim in enumerate(omtbl['now']):
 	fits.setval(newim, keyword='IMNAME', value=os.path.basename(newim), comment='Formatted file name by gpPy process')
 
 ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*', glob_exclude='*mask*')
+#------------------------------------------------------------
 #%%
-times = []
-ncores = np.arange(1, 8+1, 1)
-for ncore in ncores:
-	st = time.time()
-	photcom = f"python {path_phot} '{path_data}/Calib-*0.fits' {ncore}"
-	print(photcom)
-	os.system(photcom)
-	times.append(time.time()-st)
-times = np.array(times)
+#	Photometry
+#------------------------------------------------------------
+photcom = f"python {path_phot} '{path_data}/Calib-*0.fits' {ncore}"
+print(photcom)
+os.system(photcom)
+#------------------------------------------------------------
 #%%
-plt.close('all')
-plt.plot(
-	ncores, times,
-	ls='--', marker='s',
-	c='grey', mec='k', mfc='none',
-)
-plt.xlabel('# of cores', fontsize=20)
-plt.ylabel('Time [sec]', fontsize=20)
-plt.grid('both', ls='--', c='silver', alpha=0.5)
-plt.tight_layout()
-# plt.yscale('log')
-# %%
+#	IMAGE COMBINE
+#------------------------------------------------------------
+def group_images(objtbl, tfrac):
+	delt = np.array(objtbl['jd'] - np.min(objtbl['jd']))*(24*60*60) # [days] --> [sec]
+	tsub = delt - (np.cumsum(objtbl['exptime']*tfrac) - objtbl['exptime'][0])
+	indx = np.where(tsub < 0)
+	indx_inv = np.where(tsub > 0)
+	return indx, indx_inv
+#------------------------------------------------------------
+print(f"""{'-'*60}\n#\tGROUP IMAGES\n{'-'*60}""")
+tfrac = 1.5 # Time fraction for grouping
+comimlist = []
+for obj in set(ic_cal.summary['object']):
+	for filte in set(ic_cal.filter(object=obj).summary['filter']):
+		print(f"{len(ic_cal.filter(object=obj).summary['filter'])} images for {obj} in {filte}")
+		print('-'*60)
 
+		ic_obj = ic_cal.filter(object=obj, filter=filte)
+		objtbl = ic_obj.summary
+
+		indx_com, indx_inv = group_images(objtbl, tfrac)
+		comimlist.append(objtbl[indx_com])
+
+		#	Numbering
+		n=0
+		for inim in objtbl['file'][indx_com]:
+			print(f'[{n}] {os.path.basename(inim)}')
+			n+=1
+		print('-'*60)
+
+		while len(indx_inv[0]):
+			objtbl = objtbl[indx_inv]
+			indx_com, indx_inv = group_images(objtbl, tfrac)
+			comimlist.append(objtbl[indx_com])
+			for inim in objtbl['file'][indx_com]:
+				print(f'[{n}] {os.path.basename(inim)}')
+				n+=1
+			print('-'*60)
+#------------------------------------------------------------
+# %%
+print(f"""{'-'*60}\n#\tALIGN IMAGES AND COMBINE\n{'-'*60}""")
+for i in range(len(comimlist)):
+	#	Alignment
+	##	Target image
+	imtbl = comimlist[i]
+	indx_ref = np.where(imtbl['seeing']==np.max(imtbl['seeing']))
+	tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
+	##	Source image
+	srcimlist = list(imtbl['file'][imtbl['file']!=tgtim])
+	#	Combine
+	aligned_imlist = [CCDData(fits.getdata(tgtim), unit='adu', header=fits.getheader(tgtim))]
+	for srcim in srcimlist: aligned_imlist.append(align_astroalign(srcim, tgtim, zero=False))
+	imcombine_ccddata(aligned_imlist, fluxscale=True, zpkey='ZP', nref=0, imlist=None,)
+#------------------------------------------------------------
+# %%
+#	Photometry
+#------------------------------------------------------------
+photcom = f"python {path_phot} '{path_data}/Calib-*com.fits' {ncore}"
+print(photcom)
+os.system(photcom)
+#%%
 '''
 #------------------------------------------------------------
 #	IMAGE COMBINE

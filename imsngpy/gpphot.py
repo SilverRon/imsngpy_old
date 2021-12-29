@@ -97,15 +97,17 @@ try:
 	print(f'IMKEY  : {imkey}')
 except:
 	# imkey = gphot_dict['imkey']
-	imkey = './Calib*0.fits'
+	# imkey = './Calib*0.fits'
+	# imkey = '/data3/paek/factory/loao/test/Calib-LOAO-NGC3147-20210421-*0.fits'
+	# imkey = '/data3/paek/factory/loao/test/Calib-*0.fits'
+	imkey = '/data3/paek/factory/loao/test/Calib-*com.fits'
 	print(f'Use default IMKEY : {imkey}')
-imlist = sorted(glob.glob(imkey))
-
 try:
 	ncore = int(sys.argv[2])
 except:
 	ncore = 4
 print(f'NCORE  : {ncore}')
+
 #------------------------------------------------------------
 #	Function
 #------------------------------------------------------------
@@ -649,13 +651,56 @@ def routine(inim,):
 
 	delt = time.time()-st_
 	print(f"PHOTOMETRY IS DONE for {os.path.basename(inim)} ({round(delt, 1)} sec)")
+#------------------------------------------------------------
+def mp_phot(imlist, ncore=4):
+	if __name__ == '__main__':
+		#	Fixed the number of cores (=4)
+		with multiprocessing.Pool(processes=ncore) as pool:
+			results = pool.starmap(
+				routine,
+				zip(
+					imlist,
+					)
+				)
+#------------------------------------------------------------
+def phot(imlist):
+	for i, inim in enumerate(imlist):
+		print(f"[{i+1}/{len(imlist)}] {os.path.basename(inim)}")
+		routine(inim)
+#------------------------------------------------------------
+imlist = sorted(glob.glob(imkey))
+objlist = sorted(list(set([fits.getheader(inim)['OBJECT'] for inim in imlist])))
+print('='*60)
+print(f'{len(imlist)} IMAGE(s)')
+print('-'*60)
+for inim in imlist: print(os.path.basename(inim))
+print('-'*60)
+print(f'{len(objlist)} OBJECT(s)', end=' ')
+for obj in objlist: print(obj, end=',')
+print('\n-'*60)
 
-#	Singleprocess
+if len(objlist) > 1:
+	preimlist = sorted(
+		[glob.glob(f"{os.path.dirname(inim)}/{os.path.splitext(os.path.basename(inim))[0][0]}*{os.path.splitext(os.path.basename(inim))[0][-1]}{os.path.splitext(inim)[1]}")[0] for obj in objlist]
+		)
+else:
+	preimlist = [imlist[0]]
+#	Pre-photometry
+##	Prohibit the crush event in querying reference catalog
+mp_phot(preimlist, ncore=ncore)
+#	Remove overlapped image
+for inim in preimlist:
+	if inim in imlist:
+		imlist.remove(inim)
+#	Photometry
+mp_phot(imlist, ncore=ncore)
+
 '''
+#	Singleprocess
 for i, inim in enumerate(imlist):
 	print(f"[{i+1}/{len(imlist)}] {os.path.basename(inim)}")
 	routine(inim)
-'''
+
 #	Multiprocess
 if __name__ == '__main__':
 	#	Fixed the number of cores (=4)
@@ -666,6 +711,12 @@ if __name__ == '__main__':
 				imlist,
 				)
 			)
+'''
+
+
+
+
+
 
 #	Header sample
 header_to_put = '''

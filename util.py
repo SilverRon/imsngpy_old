@@ -27,7 +27,7 @@ def bn_median(masked_array, axis=None):
     # construct a masked array result, setting the mask from any NaN entries
     return np.ma.array(med, mask=np.isnan(med))
 #------------------------------------------------------------
-def align_astroalign(srcim, tgtim,):
+def align_astroalign(srcim, tgtim, zero=False):
 	'''
 	http://quatrope.github.io/astroalign/
 	'''
@@ -41,17 +41,20 @@ def align_astroalign(srcim, tgtim,):
 		fits.getdata(tgtim),
 		fill_value=np.NaN,
 		)
-	rzero = np.median(rdata[~np.isnan(rdata)].flatten())
-	zero_offset = tzero-rzero
-	print(f'\t--> (Aligned image) = {os.path.basename(srcim)} - ({round(zero_offset, 3)})')
-	rdata = rdata+zero_offset
+	if zero==True:
+		rzero = np.median(rdata[~np.isnan(rdata)].flatten())
+		zero_offset = tzero-rzero
+		print(f'\t--> (Aligned image) = {os.path.basename(srcim)} - ({round(zero_offset, 3)})')
+		rdata = rdata+zero_offset
+	else:
+		print(f'\t--> Skip scaling with zero')
 	return CCDData(rdata, unit='adu', header=fits.getheader(srcim))
 #------------------------------------------------------------
 from astropy.io import fits
 from astropy.nddata import CCDData
 import ccdproc
 
-def imcombine_ccddata(aligned_imlist, imlist=None):
+def imcombine_ccddata(aligned_imlist, fluxscale=False, zpkey=None, nref=None, imlist=None,):
 	"""
 	"""
 	comment = f"""{'-'*60}\n#\tCOMBINE {len(aligned_imlist)} OBJECT FRAMES\n{'-'*60}"""
@@ -64,7 +67,23 @@ def imcombine_ccddata(aligned_imlist, imlist=None):
 	#	Print
 	for n, inim in enumerate(imlist):
 		print(f'[{n}] {os.path.basename(inim)}')
-	print(f'==> {os.path.basename(comim)}')
+	print()
+
+	#	Flux scaling with ZP
+	if (fluxscale==True) & (zpkey!=None) & (nref!=None):
+		zp_ref = aligned_imlist[nref].meta[zpkey]
+		print("Flux scaling")
+		print('-'*60)
+		print(f"{nref} {aligned_imlist[nref].meta['IMNAME']} (ZP_ref={zp_ref})")
+		print('-'*60)
+		for n in range(len(aligned_imlist)):
+			if n!=nref:
+				zp = aligned_imlist[n].meta[zpkey]
+				factor = scale_flux_zp(zp, zp_ref)
+				aligned_imlist[n] = CCDData(aligned_imlist[n].data*factor, unit='adu', header=aligned_imlist[n].meta)
+				print(f"{n} {aligned_imlist[n].meta['IMNAME']}*{round(factor, 3)} (ZP={zp})")
+	else:
+		print(f'Skip flux scaling with zeropoint (fluxscale={fluxscale}, zpkey={zpkey})')
 
 	#	Combine
 	combiner = ccdproc.Combiner(aligned_imlist, dtype=np.float32)
@@ -83,6 +102,7 @@ def imcombine_ccddata(aligned_imlist, imlist=None):
 	#	Save
 	# comdata.write(comim, overwrite=True)
 	fits.writeto(comim, comdata.data, header=comdata.meta, overwrite=True)
+	print(f'==> {os.path.basename(comim)}')
 	# return comdata
 #------------------------------------------------------------
 #	Alignment
