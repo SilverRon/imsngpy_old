@@ -578,7 +578,8 @@ def routine(inim,):
 		print(f"{'='*60}\n")
 		#	MERGED TABLE
 		mtbl[inmagkey.lower()] = mtbl[inmagkey]+zp
-		mtbl[aper_dict[inmagkey]['errkey'].lower()] = sqsum(mtbl[inerrkey], mtbl[f'{filte}err'])
+		# mtbl[aper_dict[inmagkey]['errkey'].lower()] = sqsum(mtbl[inerrkey], mtbl[f'{filte}err'])
+		mtbl[aper_dict[inmagkey]['errkey'].lower()] = sqsum(mtbl[inerrkey], zper)
 		#%%
 		#------------------------------------------------------------
 		#	ZP CALCULATION SUMMARY

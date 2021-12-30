@@ -825,37 +825,6 @@ for n, tgtim in enumerate(cimlist):
 #	Transient Search
 #------------------------------------------------------------
 
-#	Write photometry configuration
-s = open(path_new_gphot, 'w')
-for line in lines:
-	if 'imkey' in line:
-		line = '{}\t{}/hd*com.fits'.format('imkey', path_data)
-	else:
-		pass
-	if 'photfraction' in line:
-		line = '{}\t{}'.format('photfraction', 1.0)
-	else:
-		pass
-	if 'DETECT_MINAREA' in line:
-		line = '{}\t{}'.format('DETECT_MINAREA', 10)
-	else:
-		pass
-	if 'DETECT_THRESH' in line:
-		line = '{}\t{}'.format('DETECT_THRESH', 1.25)
-	else:
-		pass
-	s.write(line+'\n')
-s.close()
-#	Execute
-hdimlist = sorted(glob.glob('{}/hd*.fits'.format(path_data)))
-if len(hdimlist) > 0:
-	com = 'python {} {}'.format(path_phot_sub, path_data)
-	print(com)
-	os.system(com)
-else:
-	print('No subtracted image.')
-	pass
-
 
 
 '''
