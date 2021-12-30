@@ -9,7 +9,7 @@ import os
 import sys
 from datetime import date
 import numpy as np
-
+import subprocess
 #	IMSNGpy modules
 sys.path.append('/home/paek/imsngpy')
 from tableutil import *
@@ -84,17 +84,11 @@ path_conv = f'{path_config}/{prefix_gp}.conv'
 path_nnw = f'{path_config}/{prefix_gp}.nnw'
 path_conf = f'{path_config}/{prefix_gp}.sex'
 #============================================================
-#	Input image
-#------------------------------------------------------------
-# inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063118-R-180.com.fits'
-# inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063001-R-60.fits'
-# inim = '/data3/paek/factory/test/phot/Calib-LOAO-M99-20210421-063118-R-180.com.fits'
-# inim = '/data3/paek/factory/test/phot/Calib-LOAO-NGC6946-20201112-022807-R-180.com.fits'
-# inim = '/data3/paek/factory/loao/test/Calib-LOAO-M99-20210421-063001-R-60.fits'
+#	Input
 #------------------------------------------------------------
 try:
 	imkey = sys.argv[1]
-	# imkey = '/data3/paek/factory/loao/test_fast/Calib-*0.fits'
+	# imkey = '/data3/paek/factory/loao/test_fast/Calib-LOAO-*com.fits'
 	print(f'IMKEY  : {imkey}')
 except:
 	# imkey = gphot_dict['imkey']
@@ -376,8 +370,14 @@ def routine(inim,):
 		CHECKIMAGE_TYPE = 'NONE',
 		CHECKIMAGE_NAME = 'check.fits',
 	)
-	os.system(sexcom(inim, param_insex))
+	# os.system(sexcom(inim, param_insex))
+	# rawtbl = ascii.read(outcat)
+	
+	sexout = subprocess.getoutput(sexcom(inim, param_insex))
+	line = [s for s in sexout.split('\n') if 'RMS' in s]
+	skyval, skysig = float(line[0].split('Background:')[1].split('RMS:')[0]), float(line[0].split('RMS:')[1].split('/')[0])
 	rawtbl = ascii.read(outcat)
+	
 	#------------------------------------------------------------
 	#	PRE-SELECTION FOR MATCHING
 	##	Select point sources nearby center
@@ -396,11 +396,11 @@ def routine(inim,):
 	#	Select 
 	indx_sel, indxes = select_point_sources(
 		rawtbl=rawtbl,
-		errkey=aper_dict[magkey]['errkey'],
+		errkey=aper_dict['MAG_APER']['errkey'],
 		sep=sep,
-		classstarcut=0.9,
+		classstarcut=0.5,
 		flagcut=float(gphot_dict['flagcut']),
-		magerrcut=float(gphot_dict['inmagerupper']),
+		# magerrcut=float(gphot_dict['inmagerupper']),
 		sepcut=sepcut,
 		)
 	#	Print
@@ -408,10 +408,10 @@ def routine(inim,):
 	print(f"{'='*60}")
 	print(f'ALL                  : {len(rawtbl)}')
 	print(f"{'-'*60}")
-	print(f'CLASS_STAR > {0.9}     : {len(indxes[0][0])} ({round(1e2*len(indxes[0][0])/len(rawtbl), 1)}%)')
+	print(f'CLASS_STAR > {0.5}     : {len(indxes[0][0])} ({round(1e2*len(indxes[0][0])/len(rawtbl), 1)}%)')
 	print(f"FLAGS <= {gphot_dict['flagcut']}           : {len(indxes[1][0])} ({round(1e2*len(indxes[1][0])/len(rawtbl), 1)}%)")
-	print(f"{aper_dict[magkey]['errkey']} < {gphot_dict['inmagerupper']} : {len(indxes[2][0])} ({round(1e2*len(indxes[2][0])/len(rawtbl), 1)}%)")
-	print(f"SEP < {round(sepcut.to(u.arcmin).value, 1)}'          : {len(indxes[3][0])} ({round(1e2*len(indxes[3][0])/len(rawtbl), 1)}%)")
+	# print(f"{aper_dict['MAG_APER']['errkey']} < {gphot_dict['inmagerupper']} : {len(indxes[2][0])} ({round(1e2*len(indxes[2][0])/len(rawtbl), 1)}%)")
+	print(f"SEP < {round(sepcut.to(u.arcmin).value, 1)}'          : {len(indxes[2][0])} ({round(1e2*len(indxes[2][0])/len(rawtbl), 1)}%)")
 	print(f"{'='*60}")
 	print(f"TOTAL                : {len(indx_sel[0])} ({round(1e2*len(indx_sel[0])/len(rawtbl), 1)}%)")
 	print(f"{'='*60}")
@@ -421,17 +421,23 @@ def routine(inim,):
 	#------------------------------------------------------------
 	seltbl = rawtbl[indx_sel]
 	refcatname = gphot_dict['refcatname']
-	reftbl = querybox(
-		refcatname=refcatname,
-		racent=c_cent.ra.value,
-		decent=c_cent.dec.value,
-		# outcat=f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.cat',
-		outcat=f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.ecsv',
-		radius=float(gphot_dict['refqueryradius']),
-		#	Broad-band  : ''
-		#	Median-band : 'med'
-		refmagkey=''
-		)
+	outrefcat = f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.ecsv'
+	if os.path.exists(outrefcat):
+		#	If exist, skip query
+		print(f'Found {outrefcat}')
+		reftbl = ascii.read(outrefcat)
+	else:
+		reftbl = querybox(
+			refcatname=refcatname,
+			racent=c_cent.ra.value,
+			decent=c_cent.dec.value,
+			# outcat=f'{os.path.dirname(inim)}/ref.{obj}.{refcatname}.cat',
+			outcat=outrefcat,
+			radius=float(gphot_dict['refqueryradius']),
+			#	Broad-band  : ''
+			#	Median-band : 'med'
+			refmagkey=''
+			)
 	#%%
 	'''
 	draw_space_distribution(
@@ -455,12 +461,14 @@ def routine(inim,):
 	mtbl = hstack([seltbl, reftbl[indx]])
 	mtbl['sep'] = sep
 	#	Seperation distribution
+	'''
 	plt.close('all')
 	plt.hist(sep.arcsec*1e2/seeing.value, bins=np.arange(0, 100+1, 1), histtype='step', color='k')
 	plt.axvline(x=np.median(sep.arcsec*1e2/seeing.value), ls='--', c='tomato', label=f'{round(np.median(sep.arcsec*1e2/seeing.value), 1)}%')
 	plt.xlabel('SEP/SEEING [%]')
 	plt.ylabel('#')
 	plt.legend(fontsize=20)
+	'''
 	#%%
 	#------------------------------------------------------------
 	#	Point sources for zeropoint
@@ -501,20 +509,9 @@ def routine(inim,):
 	# rsky = 1e2*skysig/skyval
 	elong = bn.median(mtbl['ELONGATION'])
 	ellip = bn.median(mtbl['ELLIPTICITY'])
-	skyval = bn.median(mtbl['BACKGROUND'])
-	skysig = bn.nanstd(mtbl['BACKGROUND'])
+	# skyval = bn.median(mtbl['BACKGROUND'])
+	# skysig = bn.nanstd(mtbl['BACKGROUND'])
 	rsky = 1e2*skysig/skyval
-	#	PUT HEADER ON THE IMAGE
-	fits.setval(inim, 'AUTHOR', value='Gregory S.H. Paek', comment='PHOTOMETRY AUTHOR')
-	fits.setval(inim, 'PHTDATE', value=date.today().isoformat(), comment='PHOTOMETRY DATE [KOR]')
-	fits.setval(inim, 'ELLIP', value=round(ellip, 3), comment='MEDIAN ELLIPTICITY 1-B/A [0-1]')
-	fits.setval(inim, 'ELONG', value=round(elong, 3), comment='MEDIAN ELONGATION A/B [1-]')
-	fits.setval(inim, 'SKYSIG', value=round(skysig, 3), comment='STD of BACKGROUND [pixel]')
-	fits.setval(inim, 'SKYVAL', value=round(skyval, 3), comment='MEDIAN of BACKGROUND [pixel]')
-	fits.setval(inim, 'RSKY', value=round(rsky, 3), comment='RATIO of SKYSIG/SKYVAL [%]')
-	fits.setval(inim, 'REFCAT', value=gphot_dict['refcatname'], comment='REFERENCE CATALOG NAME')
-	fits.setval(inim, 'MAGLOW', value=float(gphot_dict['refmaglower']), comment='REFERENCE MAG BRIGHT LIMIT')
-	fits.setval(inim, 'MAGUP', value=float(gphot_dict['refmagupper']), comment='REFERENCE MAG DIM LIMIT')
 	#	PUT HEADER ON THE IMAGE
 	fits.setval(inim, 'AUTHOR', value='Gregory S.H. Paek', comment='PHOTOMETRY AUTHOR')
 	fits.setval(inim, 'PHTDATE', value=date.today().isoformat(), comment='PHOTOMETRY DATE [KOR]')
@@ -556,7 +553,8 @@ def routine(inim,):
 		#------------------------------------------------------------
 		#	Sigma-Clipping
 		#------------------------------------------------------------
-		sigma=1.5
+		# sigma=1.5
+		sigma=2.0
 		iteration=5
 		czparr = sigma_clip(
 			np.copy(zptbl[inzpkey]),
@@ -610,7 +608,7 @@ def routine(inim,):
 		#------------------------------------------------------------
 		#	SPATIAL DISTRIBUTION
 		#------------------------------------------------------------
-		'''
+		
 		draw_zp_space(
 			inim,
 			outpng=f'{os.path.splitext(inim)[0]}.{inzpkey.lower()}.png',
@@ -620,7 +618,7 @@ def routine(inim,):
 			mask=czparr.mask,
 			dpi=100,
 			)
-		'''
+		
 		#%%
 		#	DEPTH / LIMITING MAGNITUDE
 		if inmagkey == 'MAG_AUTO':

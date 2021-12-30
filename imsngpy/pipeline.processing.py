@@ -774,7 +774,29 @@ for i in range(len(comimlist)):
 	aligned_imlist = [CCDData(fits.getdata(tgtim), unit='adu', header=fits.getheader(tgtim))]
 	for srcim in srcimlist: aligned_imlist.append(align_astroalign(srcim, tgtim, zero=False))
 	comim = imcombine_ccddata(aligned_imlist, fluxscale=True, zpkey='ZP', nref=0, imlist=None,)
+	# comim = imcombine_ccddata(aligned_imlist, fluxscale=False, zpkey='ZP', nref=0, imlist=None,)
 	cimlist.append(comim)
+#	Seeing measurement for combined image
+if __name__ == '__main__':
+	print(f"""{'-'*60}\n#\tSEEING MEASUREMENT\n{'-'*60}""")
+	with multiprocessing.Pool(processes=ncore) as pool:
+		results = pool.starmap(
+			get_seeing,
+			zip(
+					cimlist,
+					repeat(gain), 
+					repeat(pixscale), 
+					repeat(fov),
+					repeat(path_conf), 
+					repeat(path_param), 
+					repeat(path_conv), 
+					repeat(path_nnw), 
+					repeat(3*u.arcsec),
+					repeat(0.68),
+					repeat(5),
+			)
+		)
+		print('DONE')
 #------------------------------------------------------------
 # %%
 #	Photometry for combined image
@@ -786,8 +808,55 @@ os.system(photcom)
 # %%
 #	Subtraction
 #------------------------------------------------------------
-for tgtim in cimlist:
+print(f"""{'-'*60}\n#\tSUBTRACTION\n{'-'*60}""")
+for n, tgtim in enumerate(cimlist):
 	subtraction_routine(tgtim, path_ref)
+
+	outim=f"{os.path.dirname(tgtim)}/hd{os.path.basename(tgtim)}"
+	outconvim=f"{os.path.dirname(tgtim)}/hc{os.path.basename(tgtim)}"
+
+	# if os.path.exists(outim) & os.path.exists(outconvim):
+	if os.path.exists(outim):
+		print(f"[{n}] {os.path.basename(tgtim)} : Subtraction Success")
+	else:
+		print(f"[{n}] {os.path.basename(tgtim)} : Subtraction Fail")
+#------------------------------------------------------------
+# %%
+#	Transient Search
+#------------------------------------------------------------
+
+#	Write photometry configuration
+s = open(path_new_gphot, 'w')
+for line in lines:
+	if 'imkey' in line:
+		line = '{}\t{}/hd*com.fits'.format('imkey', path_data)
+	else:
+		pass
+	if 'photfraction' in line:
+		line = '{}\t{}'.format('photfraction', 1.0)
+	else:
+		pass
+	if 'DETECT_MINAREA' in line:
+		line = '{}\t{}'.format('DETECT_MINAREA', 10)
+	else:
+		pass
+	if 'DETECT_THRESH' in line:
+		line = '{}\t{}'.format('DETECT_THRESH', 1.25)
+	else:
+		pass
+	s.write(line+'\n')
+s.close()
+#	Execute
+hdimlist = sorted(glob.glob('{}/hd*.fits'.format(path_data)))
+if len(hdimlist) > 0:
+	com = 'python {} {}'.format(path_phot_sub, path_data)
+	print(com)
+	os.system(com)
+else:
+	print('No subtracted image.')
+	pass
+
+
 
 '''
 srchdr = fits.getheader(tgtim)

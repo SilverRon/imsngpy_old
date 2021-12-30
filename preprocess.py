@@ -200,7 +200,6 @@ def fringe_calc(dfim, dfdat, size=5):
 		dfringe	= fringe_b-fringe_f
 		dfr_list.append(dfringe)
 	return np.array(dfr_list)
-
 #------------------------------------------------------------
 def cosmic_ray_removal(inim, outim, maskim, gain, rdnoise, seeing=3*u.arcsec, cleantype='medmask'):
 	'''
@@ -354,7 +353,8 @@ def astrometry_analysis(inim, incor, outpng, outdat):
 
 	#	x, y ranges
 	binwidth = 0.25
-	lim = np.ceil(np.abs([ra_offset.arcsec, dec_offset.arcsec]).max() / binwidth) * binwidth
+	# lim = np.ceil(np.abs([ra_offset.arcsec, dec_offset.arcsec]).max() / binwidth) * binwidth
+	lim = 3.5
 	ax.set_xlim((-lim, lim))
 	ax.set_ylim((-lim, lim))
 

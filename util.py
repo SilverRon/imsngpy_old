@@ -251,3 +251,5 @@ def subtraction_routine(tgtim, path_ref):
 			tl=-100000,
 			)
 		os.system(subcom)
+	else:
+		print(f'No reference image for {obj} in {filte}')

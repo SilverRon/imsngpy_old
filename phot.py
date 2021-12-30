@@ -94,7 +94,7 @@ def generate_best_aperture_with_snrcurve(sctbl, apertures, pixscale,):
 	apertures*pixscale --> x?
 	'''
 	indx_col = np.where('SNR'==np.array(sctbl.keys()))
-	x=apertures*pixscale.value
+	x=apertures*pixscale.value	#	[pix] --> [arcsec]
 	plt.close('all')
 	x_optlist = []
 	for raw in range(len(sctbl)):
@@ -112,7 +112,7 @@ def generate_best_aperture_with_snrcurve(sctbl, apertures, pixscale,):
 			# sctbl['APER_OPT'][raw] = x_opt
 			x_optlist.append(x_opt)
 	# return np.copy(sctbl['APER_OPT'])
-	return np.array(x_optlist)
+	return np.array(x_optlist)/pixscale.value
 #------------------------------------------------------------
 def draw_snrcurve(scoutpng, title, seeing, aper_opt, dpi=500):
 	'''
@@ -141,10 +141,10 @@ def select_point_sources(rawtbl, errkey, sep, classstarcut=0.9, flagcut=0, mager
 	indx_fg = np.where(
 		(rawtbl['FLAGS']<=flagcut)
 	)
-	#	MAG ERROR CUT
-	indx_mg = np.where(
-		(rawtbl[errkey]<=magerrcut)
-	)
+	# #	MAG ERROR CUT
+	# indx_mg = np.where(
+	# 	(rawtbl[errkey]<=magerrcut)
+	# )
 	#	POSITION
 	indx_sp = np.where(
 		(sep<sepcut)
@@ -156,7 +156,8 @@ def select_point_sources(rawtbl, errkey, sep, classstarcut=0.9, flagcut=0, mager
 		(rawtbl[errkey]<=magerrcut) &
 		(sep<sepcut)
 		)
-	return indx_sel, (indx_cs, indx_fg, indx_mg, indx_sp)
+	# return indx_sel, (indx_cs, indx_fg, indx_mg, indx_sp)
+	return indx_sel, (indx_cs, indx_fg, indx_sp)
 #------------------------------------------------------------
 def draw_space_distribution(outpng, c_cent, rawtbl, seltbl, reftbl, dpi=500):
 	#	Space distribution
