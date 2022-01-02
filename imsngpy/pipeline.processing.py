@@ -804,27 +804,41 @@ if __name__ == '__main__':
 photcom = f"python {path_phot} '{path_data}/Calib-*com.fits' {ncore}"
 print(photcom)
 os.system(photcom)
+'''
 #------------------------------------------------------------
 # %%
 #	Subtraction
 #------------------------------------------------------------
 print(f"""{'-'*60}\n#\tSUBTRACTION\n{'-'*60}""")
+tstbl = Table()
+tstbl['sci'] = cimlist
+hcimlist = []
+hdimlist = []
 for n, tgtim in enumerate(cimlist):
 	subtraction_routine(tgtim, path_ref)
 
 	outim=f"{os.path.dirname(tgtim)}/hd{os.path.basename(tgtim)}"
 	outconvim=f"{os.path.dirname(tgtim)}/hc{os.path.basename(tgtim)}"
 
-	# if os.path.exists(outim) & os.path.exists(outconvim):
 	if os.path.exists(outim):
 		print(f"[{n}] {os.path.basename(tgtim)} : Subtraction Success")
+		hcimlist.append(outim)
+		hdimlist.append(outconvim)
 	else:
 		print(f"[{n}] {os.path.basename(tgtim)} : Subtraction Fail")
+tstbl['ref'] = hcimlist
+tstbl['sub'] = hdimlist
+
+tstablename = f"{path_data}/transient_search.ecsv"
+
+tstbl.write(tstablename, format='ascii.ecsv')
+
+tscom = f"python {path_find} '{tstablename}' {ncore}"
 #------------------------------------------------------------
 # %%
 #	Transient Search
 #------------------------------------------------------------
-
+'''
 
 
 '''

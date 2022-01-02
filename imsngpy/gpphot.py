@@ -650,6 +650,7 @@ def routine(inim,):
 		fits.setval(inim, inul3key, value=round(ul3, 3), comment=f'3 SIGMA DEPTH for {inmagkey}')
 		fits.setval(inim, inul5key, value=round(ul5, 3), comment=f'5 SIGMA DEPTH for {inmagkey}')
 
+	mtbl.write(outcat, format='ascii.ecsv', overwrite=True)
 	delt = time.time()-st_
 	print(f"PHOTOMETRY IS DONE for {os.path.basename(inim)} ({round(delt, 1)} sec)")
 #------------------------------------------------------------

@@ -10,6 +10,7 @@ from astropy.io import fits
 from astropy.nddata import CCDData
 from astropy.io import fits
 from astropy.nddata import CCDData
+from astropy import units as u
 #------------------------------------------------------------
 def scaling_func(arr): return 1/np.ma.median(arr)
 #------------------------------------------------------------
@@ -253,3 +254,41 @@ def subtraction_routine(tgtim, path_ref):
 		os.system(subcom)
 	else:
 		print(f'No reference image for {obj} in {filte}')
+#------------------------------------------------------------
+def get_ccdinfo(inim, ccdtbl):
+	#------------------------------------------------------------
+	#	Image info
+	#------------------------------------------------------------
+	hdr = fits.getheader(inim)
+	#------------------------------------------------------------
+	#	CCD INFO
+	#------------------------------------------------------------
+	if ('OBSERVAT' in hdr.keys()) & ('CCDNAME' in hdr.keys()):
+		obs = hdr['OBSERVAT']
+		ccd = hdr['CCDNAME']
+	else:
+		#	observatory from filename
+		obs = os.path.basename(inim).split('-')[1]
+		if '_' not in obs:
+			ccd = ''
+		else:
+			obs = obs.split('_')[0]
+			ccd = obs.split('_')[1]
+	indx_ccd = np.where(
+		(ccdtbl['obs']==obs) &
+		(ccdtbl['ccd']==ccd)
+	)
+	
+	# print(f"""{'-'*60}\n#\tCCD INFO\n{'-'*60}""")
+	gain = ccdtbl['gain'][indx_ccd][0]*(u.electron/u.adu)
+	rdnoise = ccdtbl['readnoise'][indx_ccd][0]*(u.electron)
+	pixscale = ccdtbl['pixelscale'][indx_ccd][0]*(u.arcsec/u.pixel)
+	fov = ccdtbl['foveff'][indx_ccd][0]*(u.arcmin)
+
+	ccdinfo = dict(
+		gain=gain,
+		rdnoise=rdnoise,
+		pixscale=pixscale,
+		fov=fov,
+	)
+	return ccdinfo

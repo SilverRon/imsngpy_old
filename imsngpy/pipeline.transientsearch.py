@@ -77,27 +77,30 @@ path_param = f'{path_config}/{prefix_gp}.param'
 path_conv = f'{path_config}/{prefix_gp}.conv'
 path_nnw = f'{path_config}/{prefix_gp}.nnw'
 path_conf = f'{path_config}/{prefix_gp}.sex'
+#	invert
+prefix_iv = 'invert'
+path_param_iv = f'{path_config}/{prefix_iv}.param'
+path_conv_iv = f'{path_config}/{prefix_iv}.conv'
+path_nnw_iv = f'{path_config}/{prefix_iv}.nnw'
+path_conf_iv = f'{path_config}/{prefix_iv}.sex'
 #============================================================
 #	Input
 #------------------------------------------------------------
-try:
-	imkey = sys.argv[1]
-	# imkey = '/data3/paek/factory/loao/test_fast/Calib-LOAO-*com.fits'
-	print(f'IMKEY  : {imkey}')
-except:
-	# imkey = '/data3/paek/factory/loao/test/Calib-*0.fits'
-	imkey = '/data3/paek/factory/loao/test/Calib-*com.fits'
-	print(f'Use default IMKEY : {imkey}')
+# tstablename = sys.argv[1]
+tstablename = '/data3/paek/factory/loao/test_fast/transient_search.ecsv'
+print(f'Transient Search Table  : {tstablename}')
+tstbl = ascii.read(tstablename)
 try:
 	ncore = int(sys.argv[2])
 except:
-	ncore = 4
+	ncore = 1
 print(f'NCORE  : {ncore}')
+print(f"{'='*60}\n")
 #------------------------------------------------------------
 #	Function
 #------------------------------------------------------------
 def routine_phot(inim,):
-	print(f'Photometry is started for {os.path.basename(inim)}')
+	print(f'PHOTOMETRY START for {os.path.basename(inim)}')
 	#
 	global path_param
 	global path_conv
@@ -134,12 +137,13 @@ def routine_phot(inim,):
 		(ccdtbl['obs']==obs) &
 		(ccdtbl['ccd']==ccd)
 	)
-	print(f"""{'-'*60}\n#\tCCD INFO\n{'-'*60}""")
+	
+	# print(f"""{'-'*60}\n#\tCCD INFO\n{'-'*60}""")
 	gain = ccdtbl['gain'][indx_ccd][0]*(u.electron/u.adu)
 	rdnoise = ccdtbl['readnoise'][indx_ccd][0]*(u.electron)
 	pixscale = ccdtbl['pixelscale'][indx_ccd][0]*(u.arcsec/u.pixel)
 	fov = ccdtbl['foveff'][indx_ccd][0]*(u.arcmin)
-	print(f"""GAIN : {gain}\nREAD NOISE : {rdnoise}\nPIXEL SCALE : {pixscale}\nEffective FoV : {fov}""")
+	# print(f"""GAIN : {gain}\nREAD NOISE : {rdnoise}\nPIXEL SCALE : {pixscale}\nEffective FoV : {fov}""")
 	#------------------------------------------------------------
 	#	Single
 	if ('SEEING' in hdr.keys()) & ('PEEING' in hdr.keys()):
@@ -299,11 +303,7 @@ def routine_phot(inim,):
 	#------------------------------------------------------------
 	# n = 0
 	# inmagkey = list(aper_dict.keys())[n]
-	print(f"{'='*60}")
-	print('\nZP CALCULATION for each APERTURES\n')
-	print(f"{'-'*60}")
 	for n, inmagkey in enumerate(list(aper_dict.keys())):
-		print(f"[{n+1}/{len(list(aper_dict.keys()))}] {inmagkey}")
 		inerrkey = aper_dict[inmagkey]['errkey']
 		inzpkey = f"ZP_{aper_dict[inmagkey]['suffix']}"
 		inul3key = f"UL3{aper_dict[inmagkey]['suffix'].replace('APER', '')}"
@@ -312,23 +312,20 @@ def routine_phot(inim,):
 		hdrzperkey = hdrzpkey.replace('ZP', 'ZPER')
 		hdrnstdkey = hdrzpkey.replace('ZP', 'NZP')
 
-		#	FILTER zptbl_ WITH MAGERR
-		zp = hdr[hdrzpkey]
-		zper = hdr[hdrzperkey]
-
 		#	MERGED TABLE
-		rawtbl[inmagkey.lower()] = rawtbl[inmagkey]+zp
-		rawtbl[aper_dict[inmagkey]['errkey'].lower()] = sqsum(rawtbl[inerrkey], zper)
+		rawtbl[inmagkey.lower()] = rawtbl[inmagkey]+hdr[hdrzpkey]
+		rawtbl[aper_dict[inmagkey]['errkey'].lower()] = sqsum(rawtbl[inerrkey], hdr[hdrzperkey])
 
+	rawtbl.write(outcat, format='ascii.ecsv', overwrite=True)
 	delt = time.time()-st_
-	print(f"PHOTOMETRY IS DONE for {os.path.basename(inim)} ({round(delt, 1)} sec)")
+	print(f"DONE ({round(delt, 1)} sec)\n")
 #------------------------------------------------------------
 def mp_phot(imlist, ncore=4):
 	if __name__ == '__main__':
 		#	Fixed the number of cores (=4)
 		with multiprocessing.Pool(processes=ncore) as pool:
 			results = pool.starmap(
-				routine,
+				routine_phot,
 				zip(
 					imlist,
 					)
@@ -337,8 +334,367 @@ def mp_phot(imlist, ncore=4):
 def phot(imlist):
 	for i, inim in enumerate(imlist):
 		print(f"[{i+1}/{len(imlist)}] {os.path.basename(inim)}")
-		routine(inim)
+		routine_phot(inim)
 #------------------------------------------------------------
-imlist = sorted(glob.glob(imkey))
+def invert_data(inim, outim):
+	data, hdr = fits.getdata(inim, header=True)
+	fits.writeto(outim, data*-1, header=hdr, overwrite=True)
+#------------------------------------------------------------
 #	Photometry
-mp_phot(imlist, ncore=ncore)
+mp_phot(tstbl['sub'], ncore=ncore)
+#------------------------------------------------------------
+n=0
+sciim = tstbl['sci'][n]
+refim = tstbl['ref'][n]
+subim = tstbl['sub'][n]
+
+hdr = fits.getheader(sciim)
+c_cent = SkyCoord(hdr['CRVAL1'], hdr['CRVAL2'], unit=u.deg)
+dateobs = hdr['DATE-OBS']
+epoch = Time(dateobs, format='isot')
+seeing = hdr['SEEING']*u.arcsec
+ccdinfo = get_ccdinfo(sciim, ccdtbl)
+
+isciim = f"{os.path.dirname(sciim)}/inv{os.path.basename(sciim)}"
+isubim = f"{os.path.dirname(subim)}/inv{os.path.basename(subim)}"
+irefim = f"{os.path.dirname(refim)}/inv{os.path.basename(refim)}"
+
+invert_data(sciim, isciim)
+invert_data(refim, irefim)
+invert_data(subim, isubim)
+#------------------------------------------------------------
+scicat = f'{os.path.splitext(sciim)[0]}.cat'
+#------------------------------------------------------------
+subcat = f'{os.path.splitext(subim)[0]}.cat'
+subtbl = ascii.read(subcat)
+c_sub = SkyCoord(subtbl['ALPHA_J2000'], subtbl['DELTA_J2000'])
+#------------------------------------------------------------
+isubcat = f'{os.path.splitext(isubim)[0]}.cat'
+ccdinfo = get_ccdinfo(sciim, ccdtbl)
+param_insex4isub = dict(
+	#------------------------------
+	#	CATALOG
+	#------------------------------
+	CATALOG_NAME = isubcat,
+	#------------------------------
+	#	CONFIG FILES
+	#------------------------------
+	CONF_NAME = path_conf_iv,
+	PARAMETERS_NAME = path_param_iv,
+	FILTER_NAME = path_conv_iv,    
+	STARNNW_NAME = path_nnw_iv,
+	#------------------------------
+	#	PHOTOMETRY
+	#------------------------------
+	GAIN = str(ccdinfo['gain'].value),
+	PIXEL_SCALE = str(ccdinfo['pixscale'].value),
+	#------------------------------
+	#	STAR/GALAXY SEPARATION
+	#------------------------------
+	SEEING_FWHM = str(seeing.value),
+	#------------------------------
+	#	EXTRACTION
+	#------------------------------
+	DETECT_MINAREA = gphot_dict['DETECT_MINAREA'],
+	DETECT_THRESH = gphot_dict['DETECT_THRESH'],
+	DEBLEND_NTHRESH = gphot_dict['DEBLEND_NTHRESH'],
+	DEBLEND_MINCONT = gphot_dict['DEBLEND_MINCONT'],
+	#------------------------------
+	#	BACKGROUND
+	#------------------------------
+	BACK_SIZE = '128',
+	BACK_FILTERSIZE = '10',
+	BACKPHOTO_TYPE = 'LOCAL',
+	#------------------------------
+	#	CHECK IMAGE
+	#------------------------------
+	CHECKIMAGE_TYPE = 'NONE',
+	CHECKIMAGE_NAME = 'check.fits',
+)
+os.system(sexcom(isubim, param_insex4isub))
+isubtbl = ascii.read(isubcat)
+c_isub = SkyCoord(isubtbl['ALPHA_J2000'], isubtbl['DELTA_J2000'])
+#------------------------------------------------------------
+irefcat = f'{os.path.splitext(irefim)[0]}.cat'
+param_insex4iref = dict(
+	#------------------------------
+	#	CATALOG
+	#------------------------------
+	CATALOG_NAME = irefcat,
+	#------------------------------
+	#	CONFIG FILES
+	#------------------------------
+	CONF_NAME = path_conf_iv,
+	PARAMETERS_NAME = path_param_iv,
+	FILTER_NAME = path_conv_iv,    
+	STARNNW_NAME = path_nnw_iv,
+	#------------------------------
+	#	PHOTOMETRY
+	#------------------------------
+	GAIN = str(ccdinfo['gain'].value),
+	PIXEL_SCALE = str(ccdinfo['pixscale'].value),
+	#------------------------------
+	#	STAR/GALAXY SEPARATION
+	#------------------------------
+	SEEING_FWHM = str(seeing.value),
+	#------------------------------
+	#	EXTRACTION
+	#------------------------------
+	DETECT_MINAREA = gphot_dict['DETECT_MINAREA'],
+	DETECT_THRESH = gphot_dict['DETECT_THRESH'],
+	DEBLEND_NTHRESH = gphot_dict['DEBLEND_NTHRESH'],
+	DEBLEND_MINCONT = gphot_dict['DEBLEND_MINCONT'],
+	#------------------------------
+	#	BACKGROUND
+	#------------------------------
+	BACK_SIZE = '128',
+	BACK_FILTERSIZE = '10',
+	BACKPHOTO_TYPE = 'LOCAL',
+	#------------------------------
+	#	CHECK IMAGE
+	#------------------------------
+	CHECKIMAGE_TYPE = 'NONE',
+	CHECKIMAGE_NAME = 'check.fits',
+)
+os.system(sexcom(irefim, param_insex4iref))
+ireftbl = ascii.read(irefcat)
+c_iref = SkyCoord(ireftbl['ALPHA_J2000'], ireftbl['DELTA_J2000'])
+#------------------------------------------------------------
+indx_isub, sep_isub, _ = c_sub.match_to_catalog_sky(c_isub)
+indx_iref, sep_iref, _ = c_sub.match_to_catalog_sky(c_iref)
+
+subtbl['sep_isub'] = sep_isub
+subtbl['sep_iref'] = sep_iref
+
+plt.close('all')
+plt.hist(sep_isub.arcsec, bins=np.arange(0, 10+0.5, 0.5), alpha=0.5, label='sub')
+plt.hist(sep_iref.arcsec, bins=np.arange(0, 10+0.5, 0.5), alpha=0.5, label='ref')
+plt.axvline(x=seeing.value, ls='--', color='grey', alpha=0.5)
+plt.legend(fontsize=20)
+plt.show()
+
+print(len(subtbl[sep_isub<seeing*0.5]))
+print(len(subtbl[sep_iref<seeing*0.5]))
+
+#
+w_ref = WCS(refim)
+x, y = w_ref.world_to_pixel(c_sub)
+plt.plot(x, y, marker='o', ls='none', c='k', alpha=0.25)
+#%%
+
+
+numbers = np.arange(0, 11+1, 1)	#	flag 0-11
+for num in numbers: subtbl[f'flag_{num}'] = False
+subtbl['flag'] = False
+#------------------------------------------------------------
+#	flag 0
+#------------------------------------------------------------
+#	Skybot query
+from astroquery.imcce import Skybot
+frac_sb = 5.0
+try:
+	sbtbl = Skybot.cone_search(c_cent, ccdinfo['fov'], epoch)
+	c_sb = SkyCoord(sbtbl['RA'], sbtbl['DEC'])
+	sbtbl['sep'] = c_cent.separation(c_sb).to(u.arcmin)
+	
+	#	Skybot matching
+	indx_sb, sep_sb, _ = c_sub.match_to_catalog_sky(c_sb)
+	subtbl['sep_skybot'] = sep_sb
+	subtbl['flag_0'][
+		(sep_sb<seeing*frac_sb)
+		] = True
+except:
+	#	RuntimeError: No solar system object was found in the requested FOV
+	print(f"No solar system object was found in the requested FOV ({ccdinfo['fov']})")
+	pass
+#------------------------------------------------------------
+#	flag 1
+#------------------------------------------------------------
+frac_inv = 1.0
+if len(isubtbl)>0:
+	#	Matching with inverted images
+	indx_isub, sep_isub, _ = c_sub.match_to_catalog_sky(c_isub)
+	subtbl['flag_1'][
+		(sep_isub<seeing*frac_inv)
+		] = True
+else:
+	print('Inverted subtraction image has no source. ==> pass flag1')
+	pass
+#------------------------------------------------------------
+#	flag 2
+#------------------------------------------------------------
+if len(ireftbl)>0:
+	#	Coordinate
+	c_iref = SkyCoord(ireftbl['ALPHA_J2000'], ireftbl['DELTA_J2000'], unit=u.deg)
+	#	Matching with inverted images
+	indx_iref, sep_iref, _ = c_sub.match_to_catalog_sky(c_iref)
+	subtbl['flag_2'][
+		(sep_iref<seeing*frac_inv)
+		] = True
+else:
+	print('Inverted reference image has no source. ==> pass flag2')
+	pass
+#------------------------------------------------------------
+#	SEtractor criterion
+#------------------------------------------------------------
+#	flag 3
+#------------------------------------------------------------
+#	Sources @edge
+frac = 0.9
+#	IMAGE PHYSICAL CENTER
+a = hdr['naxis1']/2.
+b = hdr['naxis2']/2.
+#	Small squre based on frac
+a_ = a*np.sqrt(frac)
+b_ = b*np.sqrt(frac)
+subtbl['flag_3'][
+	(
+		(subtbl['X_IMAGE']>a-a_) |
+		(subtbl['X_IMAGE']<a+a_) |
+		(subtbl['Y_IMAGE']>b-b_) |
+		(subtbl['Y_IMAGE']<b+b_)
+		)
+	] = True
+#------------------------------------------------------------
+#	flag 4
+#------------------------------------------------------------
+#	More than 5 sigma signal
+subtbl['flag_4'][
+	(subtbl['mag_aper']>hdr['ul5'])
+	] = True
+#	Empirical criterion
+#------------------------------------------------------------
+#	flag 5
+#------------------------------------------------------------
+subtbl['ratio_ellipticity'] = subtbl['ELLIPTICITY']/hdr['ELLIP']
+subtbl['ratio_elongation'] = subtbl['ELONGATION']/hdr['ELONG']
+
+subtbl['flag_5'][
+	(subtbl['ratio_ellipticity'] > 5)
+	] = True
+#------------------------------------------------------------
+#	flag 6
+#------------------------------------------------------------
+subtbl['flag_6'][
+	(subtbl['FLAGS'] > 4.0)
+	] = True
+#------------------------------------------------------------
+#	flag 7
+#------------------------------------------------------------
+seeing_up = 3.0
+seeing_lo = 0.5
+
+subtbl['ratio_seeing'] = subtbl['FWHM_WORLD'].to(u.arcsec)/seeing
+subtbl['flag_7'][
+	(subtbl['ratio_seeing']>seeing_up) |
+	(subtbl['ratio_seeing']<seeing_lo)
+	] = True
+#------------------------------------------------------------
+#	flag 8
+#------------------------------------------------------------
+subtbl['flag_8'][
+	(subtbl['BACKGROUND']<-50) |
+	(subtbl['BACKGROUND']>+50)
+	] = True
+#------------------------------------------------------------
+#	flag 9
+#------------------------------------------------------------
+scitbl = ascii.read(scicat)
+scitbl = scitbl[
+	(scitbl['FLAGS']==0) &
+	(scitbl['CLASS_STAR']>0.5)
+]
+
+aperdict = {
+	'mag_aper':'SNR_curve',
+	'mag_aper_1':'Best_Aperture',
+	'mag_aper_2':'2seeing',
+	'mag_aper_3':'3seeing',
+	'mag_aper_4':'3arcsec',
+	'mag_aper_5':'5arcsec',	
+}
+
+key0 = 'mag_aper_1'
+key1 = 'mag_aper_3'
+#	Sci. sources magnitude diff.
+scidelm = scitbl[key0] - scitbl[key1]
+#	Subt. sources magnitude diff.
+subdelm = subtbl[key0] - subtbl[key1]
+subtbl['del_mag'] = subdelm
+#	MED & MAD
+scidelm_med = np.median(scidelm)
+scidelm_mad = get_mad(scidelm)
+subtbl['del_mag_med'] = scidelm_med
+subtbl['del_mag_mad'] = scidelm_mad
+subtbl['N_del_mag_mad'] = np.abs((subtbl['del_mag']-subtbl['del_mag_med'])/subtbl['del_mag_mad'])
+#	out
+n = 10
+indx_out = np.where(
+	(subdelm<scidelm_med-scidelm_mad*n) |
+	(subdelm>scidelm_med+scidelm_mad*n)
+	)
+subtbl['flag_9'][indx_out] = True
+#------------------------------------------------------------
+#	flag 10+11
+#------------------------------------------------------------
+peeing = hdr['PEEING']
+skysig = hdr['SKYSIG']
+
+nbadlist = []
+ratiobadlist = []
+nnulllist = []
+if 'KCT' in inim:
+	f = 0.05	# Set tighter criterion 
+else:
+	f = 0.3
+for i in range(len(subtbl)):
+	tx, ty = subtbl['X_IMAGE'][i], subtbl['Y_IMAGE'][i]
+	bkg = subtbl['BACKGROUND'][i]
+	#	Snapshot
+	tsize = peeing
+	y0, y1 = int(ty-tsize), int(ty+tsize)
+	x0, x1 = int(tx-tsize), int(tx+tsize)
+	cdata = data[y0:y1, x0:x1]
+	# plt.close()
+	# plt.imshow(cdata)
+	crt = bkg - skysig
+	cutline = cdata.size*f
+	nbad = len(cdata[cdata<crt])
+	try:
+		ratiobad = nbad/cdata.size
+	except:
+		ratiobad = -99.0
+	nnull = len(np.where(cdata == 1e-30)[0])
+	#	Dipole
+	if nbad > cutline:
+		subtbl['flag_10'][i] = True
+	#	HOTPANTS Null value
+	if nnull != 0:
+		subtbl['flag_11'][i] = True
+	nbadlist.append(nbad)
+	ratiobadlist.append(ratiobad)
+	nnulllist.append(nnull)
+
+subtbl['n_bad'] = nbadlist
+subtbl['ratio_bad'] = ratiobadlist
+subtbl['n_null'] = nnulllist
+#------------------------------------------------------------
+#	Final flag
+#------------------------------------------------------------
+flag = subtbl['flag']
+n_all = len(subtbl)
+for n in numbers:
+	tmptbl = subtbl[subtbl[f'flag_{n}']==True] 
+	print(f'flag=={n} : {len(tmptbl)} {int(100*len(tmptbl)/n_all)}%')
+	flag = flag + subtbl[f'flag_{n}']
+subtbl['flag'] = flag
+indx_sb = np.where(subtbl['flag_0']==True)
+subtbl['flag'][indx_sb] = False
+
+outcat = hdcat.replace('phot_sub.cat', 'transients.cat')
+subtbl.write(outcat, format='ascii.tab', overwrite=True)
+print('-'*60)
+bgstbl = subtbl[subtbl[f'flag']==True]
+tctbl = subtbl[subtbl[f'flag']==False]
+print(f'Filtered sources\t: {len(bgstbl)} {int(100*len(bgstbl)/n_all)}%')
+print(f'Transient Candidates\t: {len(tctbl)} {int(100*len(tctbl)/n_all)}%')
