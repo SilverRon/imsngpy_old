@@ -616,24 +616,39 @@ aperdict = {
 
 key0 = 'mag_aper_1'
 key1 = 'mag_aper_3'
+
 #	Sci. sources magnitude diff.
 scidelm = scitbl[key0] - scitbl[key1]
+
 #	Subt. sources magnitude diff.
 subdelm = subtbl[key0] - subtbl[key1]
 subtbl['del_mag'] = subdelm
+
+import numpy as np
+def get_mad(data):
+	return bn.median(np.absolute(data - bn.median(data, axis=0)), axis=0)
+
 #	MED & MAD
-scidelm_med = np.median(scidelm)
+scidelm_med = bn.median(scidelm)
 scidelm_mad = get_mad(scidelm)
 subtbl['del_mag_med'] = scidelm_med
 subtbl['del_mag_mad'] = scidelm_mad
 subtbl['N_del_mag_mad'] = np.abs((subtbl['del_mag']-subtbl['del_mag_med'])/subtbl['del_mag_mad'])
-#	out
+
+#	INDEXING
 n = 10
-indx_out = np.where(
+indx_delm = np.where(
 	(subdelm<scidelm_med-scidelm_mad*n) |
 	(subdelm>scidelm_med+scidelm_mad*n)
 	)
-subtbl['flag_9'][indx_out] = True
+subtbl['flag_9'][indx_delm] = True
+
+plt.close('all')
+plt.hist(subdelm, bins=np.arange(-2.5, 2.5+0.125, 0.125), alpha=0.5)
+plt.hist(subdelm[indx_delm], bins=np.arange(-2.5, 2.5+0.125, 0.125), alpha=0.5)
+plt.axvline(x=scidelm_med-scidelm_mad*n, ls='--', c='tomato')
+plt.axvline(x=scidelm_med+scidelm_mad*n, ls='--', c='tomato')
+
 #------------------------------------------------------------
 #	flag 10+11
 #------------------------------------------------------------
@@ -643,10 +658,72 @@ skysig = hdr['SKYSIG']
 nbadlist = []
 ratiobadlist = []
 nnulllist = []
-if 'KCT' in inim:
-	f = 0.05	# Set tighter criterion 
-else:
-	f = 0.3
+
+frac_dim = 0.3
+
+data = fits.getdata(subim)
+
+def crop_data(tx, ty, tsize):
+	y0, y1 = int(ty-tsize), int(ty+tsize)
+	x0, x1 = int(tx-tsize), int(tx+tsize)
+	cdata = data[y0:y1, x0:x1]
+	return cdata
+
+def count_dim_pixels(data, tx, ty, tsize, crt,):
+
+	#	Snapshot
+	y0, y1 = int(ty-tsize), int(ty+tsize)
+	x0, x1 = int(tx-tsize), int(tx+tsize)
+	cdata = data[y0:y1, x0:x1]
+
+	nbad = len(cdata[cdata<crt])
+	try:
+		ratiobad = nbad/cdata.size
+	except:
+		#	Edge source
+		ratiobad = 1.0
+	return ratiobad
+
+i=0
+cutline = int(2*tsize)*int(2*tsize)*frac_dim
+tx, ty = subtbl['X_IMAGE'][i], subtbl['Y_IMAGE'][i]
+bkg = subtbl['BACKGROUND'][i]
+badsky = subtbl['BACKGROUND'] - skysig
+crt = badsky[i]
+
+crop_data(
+	tx=tx,
+	ty=ty,
+	tsize=peeing,
+	)
+
+
+
+ratiobad = count_dim_pixels(
+	data=data,
+	tx=tx,
+	ty=ty,
+	tsize=peeing,
+	crt=crt,
+	)
+
+#	Dipole
+if nbad > cutline:
+	subtbl['flag_10'][i] = True
+
+nnull = len(
+	np.where(
+		data[
+			int(ty-tsize):int(ty+tsize),
+			int(tx-tsize):int(tx+tsize)
+			] == 1e-30)[0]
+	)
+
+#	HOTPANTS Null value
+if nnull != 0:
+	subtbl['flag_11'][i] = True
+
+
 for i in range(len(subtbl)):
 	tx, ty = subtbl['X_IMAGE'][i], subtbl['Y_IMAGE'][i]
 	bkg = subtbl['BACKGROUND'][i]
@@ -671,13 +748,17 @@ for i in range(len(subtbl)):
 	#	HOTPANTS Null value
 	if nnull != 0:
 		subtbl['flag_11'][i] = True
+
 	nbadlist.append(nbad)
 	ratiobadlist.append(ratiobad)
 	nnulllist.append(nnull)
 
 subtbl['n_bad'] = nbadlist
+
 subtbl['ratio_bad'] = ratiobadlist
+
 subtbl['n_null'] = nnulllist
+
 #------------------------------------------------------------
 #	Final flag
 #------------------------------------------------------------

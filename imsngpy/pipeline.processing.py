@@ -804,7 +804,6 @@ if __name__ == '__main__':
 photcom = f"python {path_phot} '{path_data}/Calib-*com.fits' {ncore}"
 print(photcom)
 os.system(photcom)
-'''
 #------------------------------------------------------------
 # %%
 #	Subtraction
@@ -826,6 +825,7 @@ for n, tgtim in enumerate(cimlist):
 		hdimlist.append(outconvim)
 	else:
 		print(f"[{n}] {os.path.basename(tgtim)} : Subtraction Fail")
+
 tstbl['ref'] = hcimlist
 tstbl['sub'] = hdimlist
 
@@ -834,6 +834,7 @@ tstablename = f"{path_data}/transient_search.ecsv"
 tstbl.write(tstablename, format='ascii.ecsv')
 
 tscom = f"python {path_find} '{tstablename}' {ncore}"
+'''
 #------------------------------------------------------------
 # %%
 #	Transient Search
