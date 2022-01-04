@@ -13,6 +13,7 @@ import numpy as np
 import warnings
 warnings.filterwarnings(action='ignore')
 import time
+st = time.time()
 start_localtime = time.strftime('%Y-%m-%d %H:%M:%S (%Z)', time.localtime())
 import sys
 sys.path.append('/home/paek/imsngpy')
@@ -78,10 +79,11 @@ except:
 # path_raw = '/data6/obsdata/LOAO/1994_1003'
 # path_raw = '/data6/obsdata/LOAO/1969_0119'
 # path_raw = '/data6/obsdata/LOAO/test'
-path_raw = '/data6/obsdata/LOAO/test_fast'
+# path_raw = '/data6/obsdata/LOAO/test_fast'
+path_raw = '/data6/obsdata/LOAO/2021_1227'
 obs = 'LOAO'
 fast_mode4mframe = True
-ncore = 8
+ncore = 4
 #------------------------------------------------------------
 #	PATH
 #------------------------------------------------------------
@@ -105,12 +107,7 @@ ccddat = f'{path_table}/obs.dat'
 #------------------------------------------------------------
 #	Codes
 path_phot = f'{path_gppy}/imsngpy/gpphot.py'
-path_phot_sg = '/home/paek/qsopy/phot/gregoryphot_2021.py'
-path_phot_mp = '/home/paek/qsopy/phot/gregoryphot_mp_2021.py'
-path_phot_sub = '/home/paek/qsopy/phot/gregoryphot_sub_2021.py'
-# path_find = '/home/paek/qsopy/phot/gregoryfind_2021.py'
-# path_find = '/home/paek/qsopy/phot/gregoryfind_bulk_2021.py'
-path_find = '/home/paek/qsopy/phot/gregoryfind_bulk_mp_2021.py'
+path_find = f'{path_gppy}/imsngpy/gpsearch.py'
 #------------------------------------------------------------
 #	Table
 logtbl = ascii.read(f'{path_log}/{obs.lower()}.log')
@@ -715,6 +712,7 @@ ic_cal = ImageFileCollection(path_data, glob_include='Calib-*.f*', glob_exclude=
 #%%
 #	Photometry
 #------------------------------------------------------------
+print(f"""{'='*60}\n#\tPHOTOMETRY FOR SINGLE IMAGEs\n{'-'*60}""")
 photcom = f"python {path_phot} '{path_data}/Calib-*0.fits' {ncore}"
 print(photcom)
 os.system(photcom)
@@ -722,6 +720,8 @@ os.system(photcom)
 #%%
 #	IMAGE COMBINE
 #------------------------------------------------------------
+print(f"""{'='*60}\n#\tPHOTOMETRY FOR COMBINED IMAGEs\n{'-'*60}""")
+
 def group_images(objtbl, tfrac):
 	delt = np.array(objtbl['jd'] - np.min(objtbl['jd']))*(24*60*60) # [days] --> [sec]
 	tsub = delt - (np.cumsum(objtbl['exptime']*tfrac) - objtbl['exptime'][0])
@@ -821,8 +821,8 @@ for n, tgtim in enumerate(cimlist):
 
 	if os.path.exists(outim):
 		print(f"[{n}] {os.path.basename(tgtim)} : Subtraction Success")
-		hcimlist.append(outim)
-		hdimlist.append(outconvim)
+		hcimlist.append(outconvim)
+		hdimlist.append(outim)
 	else:
 		print(f"[{n}] {os.path.basename(tgtim)} : Subtraction Fail")
 
@@ -834,122 +834,7 @@ tstablename = f"{path_data}/transient_search.ecsv"
 tstbl.write(tstablename, format='ascii.ecsv')
 
 tscom = f"python {path_find} '{tstablename}' {ncore}"
-'''
-#------------------------------------------------------------
-# %%
-#	Transient Search
-#------------------------------------------------------------
-'''
+print(tscom)
+os.system(tscom)
 
-
-'''
-srchdr = fits.getheader(tgtim)
-obj, filte = srchdr['OBJECT'], srchdr['FILTER']
-rimlist = glob.glob(f"{path_ref}/Ref*{obj}*{filte}*.fits")
-if len(rimlist)>0:
-	srcim = rimlist[0]
-	#	Alignment
-	# srcim = f"{os.path.splitext(refim)[0]}_aligned{os.path.splitext(refim)[1]}"
-	srcdata = align_astroalign(
-		srcim=srcim,
-		tgtim=tgtim,
-		zero=False
-		)
-	refim = f"{os.path.dirname(tgtim)}/aa{os.path.basename(srcim)}"
-	fits.writeto(refim, srcdata.data, header=srcdata.meta, overwrite=True)
-	#
-	outim=f"{os.path.dirname(tgtim)}/hd{os.path.basename(tgtim)}"
-	outconvim=f"{os.path.dirname(tgtim)}/hc{os.path.basename(tgtim)}"
-	subcom = hotpants(
-		inim=tgtim,
-		refim=refim,
-		outim=outim,
-		outconvim=outconvim,
-		iu=60000,
-		tu=6000000000,
-		tl=-100000,
-		)
-	os.system(subcom)'''
-
-
-#%%
-'''
-#------------------------------------------------------------
-#	IMAGE COMBINE
-#------------------------------------------------------------
-print(f"""{'='*60}\n#\tIMAGE COMBINE\n{'='*60}""")
-
-def group_images(objtbl, tfrac):
-	delt = np.array(objtbl['jd'] - np.min(objtbl['jd']))*(24*60*60) # [days] --> [sec]
-	tsub = delt - (np.cumsum(objtbl['exptime']*tfrac) - objtbl['exptime'][0])
-	indx = np.where(tsub < 0)
-	indx_inv = np.where(tsub > 0)
-	return indx, indx_inv
-
-print(f"""{'-'*60}\n#\tGROUP IMAGES\n{'-'*60}""")
-tfrac = 1.5 # Time fraction for grouping
-comimlist = []
-for obj in set(ic_cal.summary['object']):
-	for filte in set(ic_cal.filter(object=obj).summary['filter']):
-		print(f"{len(ic_cal.filter(object=obj).summary['filter'])} images for {obj} in {filte}")
-		print('-'*60)
-
-		ic_obj = ic_cal.filter(object=obj, filter=filte)
-		objtbl = ic_obj.summary
-
-		indx_com, indx_inv = group_images(objtbl, tfrac)
-		comimlist.append(objtbl[indx_com])
-
-		#	Numbering
-		n=0
-		for inim in objtbl['file'][indx_com]:
-			print(f'[{n}] {os.path.basename(inim)}')
-			n+=1
-		print('-'*60)
-
-		while len(indx_inv[0]):
-			objtbl = objtbl[indx_inv]
-			indx_com, indx_inv = group_images(objtbl, tfrac)
-			comimlist.append(objtbl[indx_com])
-			for inim in objtbl['file'][indx_com]:
-				print(f'[{n}] {os.path.basename(inim)}')
-				n+=1
-			print('-'*60)
-
-#------------------------------------------------------------
-# %%
-print(f"""{'-'*60}\n#\tALIGN IMAGES AND COMBINE\n{'-'*60}""")
-for i in range(len(comimlist)):
-	#	Alignment
-	##	Target image
-	imtbl = comimlist[i]
-	indx_ref = np.where(imtbl['seeing']==np.min(imtbl['seeing']))
-	tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
-	##	Source image
-	srcimlist = list(imtbl['file'][imtbl['file']!=tgtim])
-	#	Combine
-	aligned_imlist = [CCDData(fits.getdata(tgtim), unit='adu', header=fits.getheader(tgtim))]
-	for srcim in srcimlist: aligned_imlist.append(align_astroalign(srcim, tgtim,))
-	imcombine_ccddata(aligned_imlist, imlist=None)
-#------------------------------------------------------------
-#	Seeing measurement again
-if __name__ == '__main__':
-	print(f"""{'-'*60}\n#\tSEEING MEASUREMENT\n{'-'*60}""")
-	with multiprocessing.Pool(processes=ncore) as pool:
-		results = pool.starmap(
-			get_seeing,
-			zip(
-					omtbl['now'],
-					repeat(gain), 
-					repeat(pixscale), 
-					repeat(fov),
-					repeat(path_conf), 
-					repeat(path_param), 
-					repeat(path_conv), 
-					repeat(path_nnw), 
-					repeat(3*u.arcsec),
-					repeat(0.68),
-					repeat(5),
-			)
-		)
-		print('DONE')'''
+print(f"{(time.time()-st)/60} min")

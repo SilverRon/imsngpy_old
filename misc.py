@@ -173,3 +173,6 @@ def date2jd(date):
 	'''
 	t_isot = Time(f"{date[:4]}-{date[4:6]}-{date[6:8]}T00:00:00", format='isot')
 	return t_isot
+#------------------------------------------------------------
+def get_mad(data):
+	return bn.median(np.absolute(data - bn.median(data, axis=0)), axis=0)

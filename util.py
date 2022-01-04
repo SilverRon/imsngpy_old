@@ -292,3 +292,18 @@ def get_ccdinfo(inim, ccdtbl):
 		fov=fov,
 	)
 	return ccdinfo
+#------------------------------------------------------------
+def crop_data(data, tx, ty, tsize):
+	y0, y1 = int(ty-tsize), int(ty+tsize)
+	x0, x1 = int(tx-tsize), int(tx+tsize)
+	cdata = data[y0:y1, x0:x1]
+	return cdata
+#------------------------------------------------------------
+def count_dim_pixels(cdata, crt,):
+	n_dim = len(cdata[cdata<crt])
+	try:
+		ratio_dim = n_dim/cdata.size
+	except:
+		#	Edge source
+		ratio_dim = 1.0
+	return (n_dim, ratio_dim)

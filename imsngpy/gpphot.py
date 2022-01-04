@@ -597,7 +597,7 @@ def routine(inim,):
 			inzpkey=inzpkey,
 			refmaglowercut=float(gphot_dict['refmaglower']),
 			refmaguppercut=float(gphot_dict['refmagupper']),
-			dpi=200,
+			dpi=100,
 			)
 		#%%
 		'''if inmagkey == 'MAG_AUTO':
