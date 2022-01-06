@@ -89,6 +89,7 @@ path_conf = f'{path_config}/{prefix_gp}.sex'
 try:
 	imkey = sys.argv[1]
 	# imkey = '/data3/paek/factory/loao/test_fast/Calib-LOAO-*com.fits'
+	# imkey = '/data3/paek/factory/loao/2021_1227/Calib*NGC2207*0.fits'
 	print(f'IMKEY  : {imkey}')
 except:
 	# imkey = gphot_dict['imkey']
@@ -100,7 +101,7 @@ except:
 try:
 	ncore = int(sys.argv[2])
 except:
-	ncore = 4
+	ncore = 1
 print(f'NCORE  : {ncore}')
 
 #------------------------------------------------------------
@@ -133,6 +134,14 @@ def routine(inim,):
 	b_ = b*np.sqrt(frac)
 	obj = hdr['OBJECT']
 	filte = hdr['FILTER']
+	'''
+	#	Cutline for class_star
+	##	Tracking issue
+	if hdr['ELLIP'] > 0.2:
+		classstarcut = 0.25
+	else:
+		classstarcut = 0.5'''
+	classstarcut = 0.25
 	#------------------------------------------------------------
 	#	CCD INFO
 	#------------------------------------------------------------
@@ -396,9 +405,9 @@ def routine(inim,):
 	#	Select 
 	indx_sel, indxes = select_point_sources(
 		rawtbl=rawtbl,
-		errkey=aper_dict['MAG_APER']['errkey'],
+		# errkey=aper_dict['MAG_APER']['errkey'],
 		sep=sep,
-		classstarcut=0.5,
+		classstarcut=classstarcut,
 		flagcut=float(gphot_dict['flagcut']),
 		# magerrcut=float(gphot_dict['inmagerupper']),
 		sepcut=sepcut,
@@ -408,10 +417,10 @@ def routine(inim,):
 	print(f"{'='*60}")
 	print(f'ALL                  : {len(rawtbl)}')
 	print(f"{'-'*60}")
-	print(f'CLASS_STAR > {0.5}     : {len(indxes[0][0])} ({round(1e2*len(indxes[0][0])/len(rawtbl), 1)}%)')
+	print(f"SEP < {round(sepcut.to(u.arcmin).value, 1)}'          : {len(indxes[2][0])} ({round(1e2*len(indxes[2][0])/len(rawtbl), 1)}%)")
+	print(f'CLASS_STAR > {classstarcut}     : {len(indxes[0][0])} ({round(1e2*len(indxes[0][0])/len(rawtbl), 1)}%)')
 	print(f"FLAGS <= {gphot_dict['flagcut']}           : {len(indxes[1][0])} ({round(1e2*len(indxes[1][0])/len(rawtbl), 1)}%)")
 	# print(f"{aper_dict['MAG_APER']['errkey']} < {gphot_dict['inmagerupper']} : {len(indxes[2][0])} ({round(1e2*len(indxes[2][0])/len(rawtbl), 1)}%)")
-	print(f"SEP < {round(sepcut.to(u.arcmin).value, 1)}'          : {len(indxes[2][0])} ({round(1e2*len(indxes[2][0])/len(rawtbl), 1)}%)")
 	print(f"{'='*60}")
 	print(f"TOTAL                : {len(indx_sel[0])} ({round(1e2*len(indx_sel[0])/len(rawtbl), 1)}%)")
 	print(f"{'='*60}")
@@ -487,9 +496,9 @@ def routine(inim,):
 	print(f"{'='*60}")
 	print(f'ALL                  : {len(mtbl)}')
 	print(f"{'-'*60}")
-	print(f"SEP < SEEING*{float(gphot_dict['sepfrac'])}     : {len(indxes[0][0])} ({round(1e2*len(indxes_zp[0][0])/len(mtbl), 1)}%)")
+	print(f"SEP < SEEING*{float(gphot_dict['sepfrac'])}     : {len(indxes_zp[0][0])} ({round(1e2*len(indxes_zp[0][0])/len(mtbl), 1)}%)")
 	print(f"{gphot_dict['refmaglower']} < {filte} < {gphot_dict['refmagupper']}          : {len(indxes_zp[4][0])} ({round(1e2*len(indxes_zp[4][0])/len(mtbl), 1)}%)")
-	print(f"{filte}err < {gphot_dict['refmagerupper']}          : {len(indxes[1][0])} ({round(1e2*len(indxes_zp[1][0])/len(mtbl), 1)}%)")
+	print(f"{filte}err < {gphot_dict['refmagerupper']}          : {len(indxes_zp[1][0])} ({round(1e2*len(indxes_zp[1][0])/len(mtbl), 1)}%)")
 	print(f"No masked {filte}          : {len(indxes_zp[5][0])} ({round(1e2*len(indxes_zp[5][0])/len(mtbl), 1)}%)")
 	# print(f"No masked {inmagkey}   : {len(indxes_zp[5][0])} ({round(1e2*len(indxes_zp[5][0])/len(mtbl), 1)}%)")
 	print(f"{'-'*60}")
@@ -684,7 +693,7 @@ print('-'*60)
 
 if len(objlist) > 1:
 	preimlist = sorted(
-		[glob.glob(f"{os.path.dirname(inim)}/{os.path.splitext(os.path.basename(inim))[0][0]}*{os.path.splitext(os.path.basename(inim))[0][-1]}{os.path.splitext(inim)[1]}")[0] for obj in objlist]
+		[glob.glob(f"{os.path.dirname(inim)}/{os.path.splitext(os.path.basename(inim))[0][0]}*{obj}*{os.path.splitext(os.path.basename(inim))[0][-1]}{os.path.splitext(inim)[1]}")[0] for obj in objlist]
 		)
 else:
 	preimlist = [imlist[0]]

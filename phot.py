@@ -129,7 +129,7 @@ def draw_snrcurve(scoutpng, title, seeing, aper_opt, dpi=500):
 	# plt.yscale('log')
 	plt.savefig(scoutpng, dpi=dpi, overwrite=True)
 #------------------------------------------------------------
-def select_point_sources(rawtbl, errkey, sep, classstarcut=0.9, flagcut=0, magerrcut=0.05, sepcut=0.5*u.deg):
+def select_point_sources(rawtbl, sep, classstarcut=0.9, flagcut=0, magerrcut=0.05, sepcut=0.5*u.deg):
 	'''
 	'''
 	#	Indivisual index
@@ -153,7 +153,7 @@ def select_point_sources(rawtbl, errkey, sep, classstarcut=0.9, flagcut=0, mager
 	indx_sel = np.where(
 		(rawtbl['CLASS_STAR']>classstarcut) &
 		(rawtbl['FLAGS']<=flagcut) &
-		(rawtbl[errkey]<=magerrcut) &
+		# (rawtbl[errkey]<=magerrcut) &
 		(sep<sepcut)
 		)
 	# return indx_sel, (indx_cs, indx_fg, indx_mg, indx_sp)

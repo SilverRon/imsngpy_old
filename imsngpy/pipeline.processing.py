@@ -595,7 +595,8 @@ tralist, tdeclist = [], []
 for i, inim in enumerate(omtbl['now']):
 	if fits.getheader(inim)['OBJECT'] in alltbl['obj']:
 		indx_obj = np.where(fits.getheader(inim)['OBJECT']==alltbl['obj'])
-		tra, tdec = alltbl['ra'][indx_obj].item(), alltbl['dec'][indx_obj].item()
+		# tra, tdec = alltbl['ra'][indx_obj].item(), alltbl['dec'][indx_obj].item()
+		tra, tdec = alltbl['ra'][indx_obj][0], alltbl['dec'][indx_obj][0]
 	else:
 		tra, tdec = None, None
 	tralist.append(tra)
@@ -767,7 +768,8 @@ for i in range(len(comimlist)):
 	##	Target image
 	imtbl = comimlist[i]
 	indx_ref = np.where(imtbl['seeing']==np.max(imtbl['seeing']))
-	tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
+	# tgtim = imtbl['file'][imtbl['file']==imtbl['file'][indx_ref]][0]
+	tgtim = imtbl['file'][indx_ref][0]
 	##	Source image
 	srcimlist = list(imtbl['file'][imtbl['file']!=tgtim])
 	#	Combine
